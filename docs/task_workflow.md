@@ -35,4 +35,9 @@ sessions, and only independent tasks that don't touch shared files.
       reviewed on their own merits)
 - [ ] Full test suite still passes
 - [ ] No stray TODOs/stub shortcuts left in the diff
+- [ ] `backlog.md` checkboxes updated for the task
+- [ ] `README.md` updated if the task changed what the code can do (a new
+      capability under "What it does today") or passed a milestone gate
+      (the "Status" section). Detailed progress stays in `backlog.md` and
+      `roadmap.md`; the README only summarizes and links to them
 - [ ] One commit, message references the task
