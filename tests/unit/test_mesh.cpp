@@ -1,10 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <array>
 #include <vector>
 
 #include "mesh.hpp"
 
+using Catch::Matchers::WithinAbs;
 using hydro::mesh::Index;
 using hydro::mesh::kFacesPerCell;
 using hydro::mesh::kHexFaceNodes;
@@ -12,6 +14,7 @@ using hydro::mesh::kNodesPerFace;
 using hydro::mesh::kNoCell;
 using hydro::mesh::Mesh;
 using hydro::mesh::StructuredMeshSpec;
+using hydro::mesh::face_area_vectors;
 using hydro::mesh::generate_structured_mesh;
 
 namespace {
@@ -129,4 +132,107 @@ TEST_CASE("generate_structured_mesh: 3x2x2 counts and consistency", "[mesh]") {
   CHECK(boundary_faces == 2 * (2 * 2 + 3 * 2 + 3 * 2));
 
   check_face_consistency(m);
+}
+
+namespace {
+
+using Vec = std::array<double, 3>;
+
+void check_vec(const Vec& actual, const Vec& expected) {
+  for (int d = 0; d < 3; ++d) CHECK_THAT(actual[d], WithinAbs(expected[d], 1e-14));
+}
+
+// Sum over a cell's faces and nodes of the outward S_pf n_pf, and the cell
+// volume from them via V_c = 1/3 sum_p x_p . sum_f S_pf n_pf (exact for the
+// face-split cell, since V_c is cubic in the node positions and the GCL gives
+// dV_c/dx_p = sum_f S_pf n_pf).
+void cell_closure_and_volume(const Mesh& m, Index c, Vec& closure, double& volume) {
+  closure = {0.0, 0.0, 0.0};
+  volume = 0.0;
+  for (Index f : m.cell_faces[c]) {
+    const double sign = m.face_owner[f] == c ? 1.0 : -1.0;
+    const auto vecs = face_area_vectors(m, f);
+    for (int n = 0; n < kNodesPerFace; ++n) {
+      const auto x = node(m, m.face_nodes[f][n]);
+      for (int d = 0; d < 3; ++d) {
+        closure[d] += sign * vecs[n][d];
+        volume += sign * x[d] * vecs[n][d] / 3.0;
+      }
+    }
+  }
+}
+
+}  // namespace
+
+TEST_CASE("face_area_vectors: axis-aligned faces of a generated cell", "[mesh]") {
+  // dx = 1, dy = 0.5, dz = 0.25: every face of a rectangular cell splits
+  // evenly, so each node gets a quarter of the face area along the normal.
+  StructuredMeshSpec spec;
+  spec.nx = 3;
+  spec.ny = 2;
+  spec.nz = 2;
+  spec.x_max = 3.0;
+  spec.y_max = 1.0;
+  spec.z_max = 0.5;
+  const Mesh m = generate_structured_mesh(spec);
+
+  // Cell 0 owns all six of its faces (boundary, or lower-indexed neighbor).
+  const Index c = 0;
+  const std::array<Vec, 6> expected = {{
+      {-0.125 / 4, 0.0, 0.0},  // -x: area dy*dz = 0.125
+      {+0.125 / 4, 0.0, 0.0},  // +x
+      {0.0, -0.25 / 4, 0.0},   // -y: area dx*dz = 0.25
+      {0.0, +0.25 / 4, 0.0},   // +y
+      {0.0, 0.0, -0.5 / 4},    // -z: area dx*dy = 0.5
+      {0.0, 0.0, +0.5 / 4},    // +z
+  }};
+  for (int l = 0; l < kFacesPerCell; ++l) {
+    const Index f = m.cell_faces[c][l];
+    REQUIRE(m.face_owner[f] == c);
+    const auto vecs = face_area_vectors(m, f);
+    for (int n = 0; n < kNodesPerFace; ++n) {
+      INFO("local face " << l << ", face node " << n);
+      check_vec(vecs[n], expected[l]);
+    }
+  }
+
+  Vec closure;
+  double volume;
+  cell_closure_and_volume(m, c, closure, volume);
+  check_vec(closure, {0.0, 0.0, 0.0});
+  CHECK_THAT(volume, WithinAbs(1.0 * 0.5 * 0.25, 1e-14));
+}
+
+TEST_CASE("face_area_vectors: trapezoidal face weights nodes unequally", "[mesh]") {
+  // Unit-height cell on [0,2]x[0,1]x[0,1] with bottom node 3 moved from
+  // (2,1,0) to (1,1,0): the -z face becomes the trapezoid (0,0), (2,0), (1,1),
+  // (0,1), area 1.5, barycenter p* = (0.75, 0.5).
+  StructuredMeshSpec spec;
+  spec.x_max = 2.0;
+  Mesh m = generate_structured_mesh(spec);
+  m.node_x[3] = 1.0;
+
+  // Triangles (p*, p, p+) around the trapezoid, areas by hand:
+  //   (0,0)-(2,0): 0.5    (2,0)-(1,1): 0.375
+  //   (1,1)-(0,1): 0.25   (0,1)-(0,0): 0.375
+  // Eq. 5, node p: 1/3 (its two triangles + 1.5/4)
+  //   (0,0), (2,0): 1/3 (0.875 + 0.375) = 5/12
+  //   (1,1), (0,1): 1/3 (0.625 + 0.375) = 1/3
+  // (An even split would give 0.375 each.) The face normal is -z.
+  const Index f = m.cell_faces[0][4];  // local face -z, nodes {0, 2, 3, 1}
+  REQUIRE(m.face_nodes[f] == Quad{0, 2, 3, 1});
+  const auto vecs = face_area_vectors(m, f);
+  check_vec(vecs[0], {0.0, 0.0, -5.0 / 12.0});  // node 0 (0,0,0)
+  check_vec(vecs[1], {0.0, 0.0, -1.0 / 3.0});   // node 2 (0,1,0)
+  check_vec(vecs[2], {0.0, 0.0, -1.0 / 3.0});   // node 3 (1,1,0)
+  check_vec(vecs[3], {0.0, 0.0, -5.0 / 12.0});  // node 1 (2,0,0)
+
+  // The +x and +y faces are now non-planar. Volume by the prismatoid formula,
+  // h/6 (A_bottom + 4 A_mid + A_top), mid section a trapezoid with top edge
+  // 1.5: 1/6 (1.5 + 4*1.75 + 2) = 1.75.
+  Vec closure;
+  double volume;
+  cell_closure_and_volume(m, 0, closure, volume);
+  check_vec(closure, {0.0, 0.0, 0.0});
+  CHECK_THAT(volume, WithinAbs(1.75, 1e-14));
 }

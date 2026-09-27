@@ -87,4 +87,15 @@ struct StructuredMeshSpec {
 //   - an interior face is owned by the lower-indexed of its two cells.
 Mesh generate_structured_mesh(const StructuredMeshSpec& spec);
 
+// Nodal face area vectors S_pf n_pf of face f (Colaïtis, Guisset & Breil,
+// SSRN 5167115, Eq. 5, after Georges, Breil & Maire [29]). The face is split
+// into triangles tr = (p*_f, p, p+) around its barycenter p*_f, and node p gets
+//   S_pf n_pf = 1/3 [ sum_{tr in T(f,p)} S_tr n_tr
+//                     + 1/N_f sum_{tr in T(f)} S_tr n_tr ],
+// with N_f the number of face nodes; the entries sum to the face area vector.
+// Entry n belongs to node face_nodes[f][n]. Vectors point out of the owner
+// cell; the neighbor cell uses their negatives.
+std::array<std::array<double, 3>, kNodesPerFace> face_area_vectors(
+    const Mesh& m, Index f);
+
 }  // namespace hydro::mesh

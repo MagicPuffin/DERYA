@@ -24,7 +24,7 @@ this file is the source of truth for "what's next," not the chat history.
       original task prompt had a wrong expected value, 1.5 — correctly
       caught and flagged rather than "fixed" by editing the test to match)
 
-## Task 2 — Mesh module (`src/mesh/`) — IN PROGRESS
+## Task 2 — Mesh module (`src/mesh/`) — ✅ DONE
 - [x] `Mesh` type + test for a structured mesh: node/cell/face counts and
       connectivity (interface + test only). First built as a 2D quad mesh,
       then generalized to 3D-native hexahedra per `decisions.md` ("Mesh is
@@ -32,9 +32,12 @@ this file is the source of truth for "what's next," not the chat history.
       2×2×1 case (18 nodes, 4 cells, 20 faces, cell 0 corners
       {0,1,4,3,9,10,13,12}) plus a 3×2×2 case and face-orientation checks
 - [x] Implement `generate_structured_mesh()` to pass the above
-- [ ] Test: face-area vector (paper Eq. 5) on one known cell of the generated
-      mesh
-- [ ] Implement it
+- [x] Test: face-area vector (paper Eq. 5) on one known cell of the generated
+      mesh. Eq. 5 is per node of each face (S_pf n_pf, face split into
+      triangles around its barycenter p*_f), so a rectangular face alone
+      can't tell it from an even A/4 split; the test adds a trapezoidal face
+      (hand-derived 5/12, 1/3 weights) plus closure and GCL volume checks
+- [x] Implement it: `face_area_vectors(mesh, f)`, oriented out of the owner
 
 ## Task 3 — Boundary conditions (`src/bc/`)
 - [ ] `BoundaryCondition::apply(mesh, fields)` interface
@@ -43,8 +46,8 @@ this file is the source of truth for "what's next," not the chat history.
 - [ ] (Kidder's prescribed-motion BC waits for its own task batch)
 
 ## Task 4 — Core Lagrangian solver (`src/hydro/`)
-19-task breakdown, paper Sec. 2 — Vec3/index types → face-area vector (Eq. 5)
-→ corner-area assembly → acoustic impedance Z_c (Eq. 3, needs EOS) → nodal
+19-task breakdown, paper Sec. 2 — Vec3/index types → face-area vector (Eq. 5;
+already done in Task 2 as `mesh::face_area_vectors`) → corner-area assembly → acoustic impedance Z_c (Eq. 3, needs EOS) → nodal
 solver M_p/B assembly (Eq. 4) → velocity solve → momentum update (Eq. 1) →
 energy update (Eq. 1) → node position update (Eq. 2) → single-patch
 integration test. Each implementation task preceded by its own test task.

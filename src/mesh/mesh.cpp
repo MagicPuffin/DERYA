@@ -125,4 +125,42 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
   return m;
 }
 
+std::array<std::array<double, 3>, kNodesPerFace> face_area_vectors(
+    const Mesh& m, Index f) {
+  using Vec = std::array<double, 3>;
+  const auto& fn = m.face_nodes[f];
+
+  std::array<Vec, kNodesPerFace> x;
+  Vec center = {0.0, 0.0, 0.0};
+  for (int n = 0; n < kNodesPerFace; ++n) {
+    x[n] = {m.node_x[fn[n]], m.node_y[fn[n]], m.node_z[fn[n]]};
+    for (int d = 0; d < 3; ++d) center[d] += x[n][d] / kNodesPerFace;
+  }
+
+  // tri[n]: area vector of triangle (p*_f, x[n], x[n+1]).
+  std::array<Vec, kNodesPerFace> tri;
+  Vec total = {0.0, 0.0, 0.0};
+  for (int n = 0; n < kNodesPerFace; ++n) {
+    const Vec& b = x[n];
+    const Vec& c = x[(n + 1) % kNodesPerFace];
+    const Vec u = {b[0] - center[0], b[1] - center[1], b[2] - center[2]};
+    const Vec v = {c[0] - center[0], c[1] - center[1], c[2] - center[2]};
+    tri[n] = {0.5 * (u[1] * v[2] - u[2] * v[1]),
+              0.5 * (u[2] * v[0] - u[0] * v[2]),
+              0.5 * (u[0] * v[1] - u[1] * v[0])};
+    for (int d = 0; d < 3; ++d) total[d] += tri[n][d];
+  }
+
+  // Node n touches triangles n-1 and n.
+  std::array<Vec, kNodesPerFace> result;
+  for (int n = 0; n < kNodesPerFace; ++n) {
+    const Vec& before = tri[(n + kNodesPerFace - 1) % kNodesPerFace];
+    for (int d = 0; d < 3; ++d) {
+      result[n][d] =
+          (before[d] + tri[n][d] + total[d] / kNodesPerFace) / 3.0;
+    }
+  }
+  return result;
+}
+
 }  // namespace hydro::mesh
