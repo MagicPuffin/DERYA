@@ -1,0 +1,4 @@
+# ExactPack is NOT on PyPI under this name (pip install exactpack fails) —
+# install directly from its GitHub repo. Discovered during Task 0 bootstrap.
+git+https://github.com/lanl/ExactPack.git
+numpy
