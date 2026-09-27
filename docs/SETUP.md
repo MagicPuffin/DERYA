@@ -45,3 +45,13 @@ python3 scripts/gen_oracle_data.py
   sandbox environment used to verify Task 0 had matplotlib preinstalled for
   unrelated reasons — a real gap in that verification, not just a missing
   requirements line. `requirements.txt` now lists it explicitly.
+- **Regenerated oracle data is not bit-for-bit identical across machines.**
+  Running `scripts/gen_oracle_data.py` on Luca's machine (numpy 2.5.3,
+  scipy-openblas 0.3.34, ExactPack 1.7.11) changes 6 of the 804 values in
+  `sod.json` by 1 ulp (max relative difference 2.1e-16) compared with the
+  committed file from the bootstrap environment. Repeat runs on the same
+  machine are identical. The cause is floating-point rounding differences
+  between library builds; `requirements.txt` doesn't pin versions. Don't
+  commit a regenerated oracle file whose only changes are at this level: the
+  committed file is the reference, and regression tests compare against it
+  with a tolerance, never exact equality.

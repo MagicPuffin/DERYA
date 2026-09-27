@@ -9,8 +9,12 @@ this file is the source of truth for "what's next," not the chat history.
 - [x] Toolchain smoke test green
 - [x] ExactPack installed from GitHub (not on PyPI), `matplotlib` added to
       `requirements.txt` (ep_riemann imports pyplot at module load)
-- [x] `scripts/gen_oracle_data.py` → `tests/oracle_data/sod.json`, verified
-      reproducible bit-for-bit on Luca's machine via SSH
+- [x] `scripts/gen_oracle_data.py` → `tests/oracle_data/sod.json`,
+      reproducible to within 1 ulp across machines, **not** bit-for-bit:
+      regenerating on Luca's machine changes 6 of 804 values by 1 ulp (max
+      relative difference 2.1e-16); repeat runs on one machine are identical.
+      The committed file stays the reference; regression tests must compare
+      with a tolerance (see `docs/SETUP.md`)
 - [x] Pushed to GitHub (`DERYA`)
 
 ## Task 1 — EOS module (`src/eos/`) — ✅ DONE
