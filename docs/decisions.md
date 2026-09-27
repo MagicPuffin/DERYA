@@ -20,6 +20,16 @@ stop and report rather than deciding to override it.
 - **Module boundaries are enforced by the build system**, not convention —
   each `src/<module>/` is its own CMake target; a module linking against
   something it shouldn't is a build failure.
+- **Mesh is 3D-native from Task 2 onward** — hexahedral cells, `(i,j,k)`
+  indexing, `nz` defaults to 1. There is no separate 2D mesh implementation.
+  "2D" test setups (Sod, etc.) run as a thin extrusion (`nz=1`, later
+  possibly `nz=2` for symmetry checks) with symmetry/periodic BCs on the two
+  thin faces — this matches the reference paper's own approach exactly
+  (Sec. 6.2: their "Sod test" runs on a `4×4×200` 3D slab, not a true 1D
+  mesh; their AMR implementation is "purely 3D" throughout). Caught and
+  corrected after the first mesh task was built genuinely 2D (quad cells,
+  `(i,j)` indexing) — that version is being generalized before anything
+  downstream (face-area vectors, the Lagrangian solver) depends on it.
 
 ## Testing
 - **Tier 1 — unit tests (Catch2):** one function/equation at a time, test

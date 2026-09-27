@@ -23,11 +23,11 @@ drive coupling, burn physics, any formal documentation/review process.
 ## Milestones
 | Version | Contains | Gate |
 |---|---|---|
-| v0.1 | First-order 2D Lagrangian hydro, no AMR, no p4est | Sod/Noh/Saltzman pass at 1 resolution |
+| v0.1 | First-order Lagrangian hydro (3D-native mesh, run as thin-slab/"2D" test setups), no AMR, no p4est | Sod/Noh/Saltzman pass at 1 resolution |
 | v0.2 | + second-order (MUSCL/SP-V, paper Sec. 2.3) | same tests, 3 resolutions, correct convergence order |
 | v0.3 | + Sedov, Kidder, Guderley, LeBlanc | all pass, convergence documented |
-| v0.4 | + p4est, Lagrange-AMR, Euler-AMR, 2D | paper's Sod-AMR/triple-point-AMR parity |
-| v0.5 | + 3D, cylindrical geometry | DoD item 2 |
+| v0.4 | + p4est, Lagrange-AMR, Euler-AMR, thin-slab | paper's Sod-AMR/triple-point-AMR parity |
+| v0.5 | + genuinely 3D problems, cylindrical geometry | DoD item 2 |
 | v1.0 | + science demo, restart, report generation | DoD fully met |
 
 ## Known design gaps (not yet built, tracked so they aren't forgotten)
@@ -49,3 +49,11 @@ drive coupling, burn physics, any formal documentation/review process.
   is out of scope). Revisit only if/when a Tier B decision is made later.
   Author outreach (emailing Colaïtis/Guisset/Breil) still an open,
   low-urgency action item.
+
+## Resolved gaps (kept here as history, not open items)
+- **Mesh dimensionality** — the mesh module was initially built genuinely 2D
+  (quad cells). Caught before the Lagrangian solver (Task 4, which needs the
+  3D face-area-vector formula from paper Eq. 5) depended on it. Generalized
+  to 3D-native hexahedral, `nz=1` as the default "2D" run mode — see
+  `decisions.md`. No other module was affected since nothing downstream of
+  mesh existed yet.
