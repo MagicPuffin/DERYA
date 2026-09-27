@@ -7,7 +7,7 @@
 
 namespace hydro::bc {
 
-using Vec3 = std::array<double, 3>;
+using Vec3 = mesh::Vec3;
 using Mat3 = std::array<Vec3, 3>;
 
 // Boundary conditions of the EUCCLHYD nodal solver (Colaïtis, Guisset & Breil,

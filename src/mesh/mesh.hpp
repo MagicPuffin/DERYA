@@ -7,7 +7,7 @@
 namespace hydro::mesh {
 
 // Local entity index. Plain integer for now; the local-index-plus-ghost-flag
-// type arrives with the Task 4 index types.
+// addressing arrives with ghosts, at v0.4.
 using Index = std::int32_t;
 
 // Face neighbor of a boundary face.
@@ -15,6 +15,9 @@ inline constexpr Index kNoCell = -1;
 
 // face_boundary of an interior face.
 inline constexpr int kInteriorFace = -1;
+
+// Point or vector in 3D.
+using Vec3 = std::array<double, 3>;
 
 inline constexpr int kNodesPerCell = 8;
 inline constexpr int kFacesPerCell = 6;
@@ -102,7 +105,6 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec);
 // with N_f the number of face nodes; the entries sum to the face area vector.
 // Entry n belongs to node face_nodes[f][n]. Vectors point out of the owner
 // cell; the neighbor cell uses their negatives.
-std::array<std::array<double, 3>, kNodesPerFace> face_area_vectors(
-    const Mesh& m, Index f);
+std::array<Vec3, kNodesPerFace> face_area_vectors(const Mesh& m, Index f);
 
 }  // namespace hydro::mesh

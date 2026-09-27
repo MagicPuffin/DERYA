@@ -56,16 +56,37 @@ this file is the source of truth for "what's next," not the chat history.
       pressure P* (free surface) is a one-line extension of the outflow BC
       when a test needs it)
 
-## Task 4 — Core Lagrangian solver (`src/hydro/`)
-19-task breakdown, paper Sec. 2 — Vec3/index types → face-area vector (Eq. 5;
-already done in Task 2 as `mesh::face_area_vectors`) → corner-area assembly → acoustic impedance Z_c (Eq. 3, needs EOS) → nodal
-solver M_p/B assembly (Eq. 4, over all faces incl. boundary faces, then
-`bc::apply_pressure_bcs`) → velocity solve (`bc::solve_nodal_velocity`,
-already done in Task 3) → momentum update (Eq. 1) →
-energy update (Eq. 1) → node position update (Eq. 2) → single-patch
-integration test. Each implementation task preceded by its own test task.
-(Full table in the original chat planning doc if the detail is needed again
-— reconstruct the same granularity here as each sub-task starts.)
+## Task 4 — Core Lagrangian solver (`src/hydro/`) — ✅ DONE
+First-order EUCCLHYD step, paper Sec. 2.2, in `src/hydro/hydro.{hpp,cpp}`
+(namespace `hydro::lagrangian`; `hydro::hydro` was ambiguous under `using
+namespace hydro`). Links `mesh`, `bc`, `eos`. Tests in `tests/unit/test_hydro.cpp`.
+- [x] Vec3: `mesh::Vec3` shared by all modules (`bc::Vec3` aliases it). Index
+      stays a plain `int32`; the ghost-flag addressing is deferred to v0.4,
+      when there are ghosts to address
+- [x] Face-area vector (Eq. 5): already `mesh::face_area_vectors` (Task 2)
+- [x] Corner geometry: `cell_face_vectors()` (outward S_pf n_pf per cell,
+      local face, face node), `corner_vectors()`, `cell_volume()`. Tests:
+      owner/neighbor signs, closure, GCL (n_cp = dV_c/dx_p by finite
+      differences on a distorted mesh), box and non-planar volumes
+- [x] State + impedance (Eq. 3): `HydroState` (moving mesh, SoA m_c, V_c,
+      E_c), `make_state()`, `cell_thermo()` (rho, P, Z = rho a; throws on
+      non-positive volume)
+- [x] Nodal solver (Eq. 4): `assemble_nodal_system()` over all faces, then
+      `nodal_velocities()` = `bc::apply_pressure_bcs` + `bc::solve_nodal_velocity`.
+      Tests: hand-computed corner M/B; uniform flow gives V_p = V_c at every
+      node on a distorted mesh (symmetry + outflow, and all outflow)
+- [x] Corner forces with P_cfp (Eq. 3), momentum + energy update (Eq. 1),
+      node update (Eq. 2): `corner_forces()`, `update_cells()`,
+      `move_nodes()`, all forward Euler, composed in `lagrangian_step(s, bcs,
+      eos, dt)` (dt comes from Task 5)
+- [x] Integration tests: uniform rest state stays at rest; closed
+      symmetry box conserves mass, total energy and volume to round-off
+      (1e-13) over 50 steps of a non-uniform state; Sod on a 100x2x2 slab to
+      t = 0.2 with fixed dt stays exactly 1D and has L1 density error 0.0202
+      vs `sod.json` (converges at order ~0.6 over nx = 50-400; bound 0.025)
+- [ ] Before Noh: a cold gas (eps = 0) gives a = 0, Z = 0 and a singular M_p.
+      Needs an impedance floor or a shock-strength term in Z_c (a design
+      decision, not in the paper)
 
 ## Task 5 — Timestep/CFL controller (`src/timestep/`)
 - [ ] CFL-limited dt test on a trivial single-cell case, known analytic value

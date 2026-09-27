@@ -128,9 +128,8 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
   return m;
 }
 
-std::array<std::array<double, 3>, kNodesPerFace> face_area_vectors(
-    const Mesh& m, Index f) {
-  using Vec = std::array<double, 3>;
+std::array<Vec3, kNodesPerFace> face_area_vectors(const Mesh& m, Index f) {
+  using Vec = Vec3;
   const auto& fn = m.face_nodes[f];
 
   std::array<Vec, kNodesPerFace> x;
