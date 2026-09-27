@@ -8,7 +8,7 @@
 # so the tree structure is visible from day one without breaking the build.
 
 add_subdirectory(eos)
-# add_subdirectory(mesh)
+add_subdirectory(mesh)
 # add_subdirectory(bc)
 # add_subdirectory(timestep)
 # add_subdirectory(hydro)

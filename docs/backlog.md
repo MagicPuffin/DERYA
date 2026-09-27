@@ -21,10 +21,13 @@ this file is the source of truth for "what's next," not the chat history.
       caught and flagged rather than "fixed" by editing the test to match)
 
 ## Task 2 — Mesh module (`src/mesh/`) — IN PROGRESS
-- [ ] `Mesh` type + test for structured N×M quad mesh: node/cell/face counts
-      and connectivity for a 2×2 case (interface + test only, no
-      implementation — that's the next task)
-- [ ] Implement `generate_structured_mesh()` to pass the above
+- [x] `Mesh` type + test for a structured mesh: node/cell/face counts and
+      connectivity (interface + test only). First built as a 2D quad mesh,
+      then generalized to 3D-native hexahedra per `decisions.md` ("Mesh is
+      3D-native"): `(i,j,k)` indexing, `nz` defaults to 1. Test asserts the
+      2×2×1 case (18 nodes, 4 cells, 20 faces, cell 0 corners
+      {0,1,4,3,9,10,13,12}) plus a 3×2×2 case and face-orientation checks
+- [x] Implement `generate_structured_mesh()` to pass the above
 - [ ] Test: face-area vector (paper Eq. 5) on one known cell of the generated
       mesh
 - [ ] Implement it

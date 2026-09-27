@@ -1,0 +1,128 @@
+#include "mesh.hpp"
+
+namespace hydro::mesh {
+
+namespace {
+
+enum LocalFace { kXMinus = 0, kXPlus, kYMinus, kYPlus, kZMinus, kZPlus };
+
+}  // namespace
+
+Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
+  const Index nx = spec.nx, ny = spec.ny, nz = spec.nz;
+  const double dx = (spec.x_max - spec.x_min) / nx;
+  const double dy = (spec.y_max - spec.y_min) / ny;
+  const double dz = (spec.z_max - spec.z_min) / nz;
+
+  auto node_id = [&](Index i, Index j, Index k) {
+    return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i;
+  };
+  auto cell_id = [&](Index i, Index j, Index k) {
+    return k * ny * nx + j * nx + i;
+  };
+  const Index fx_count = (nx + 1) * ny * nz;
+  const Index fy_count = nx * (ny + 1) * nz;
+  auto x_face_id = [&](Index i, Index j, Index k) {
+    return k * ny * (nx + 1) + j * (nx + 1) + i;
+  };
+  auto y_face_id = [&](Index i, Index j, Index k) {
+    return fx_count + k * (ny + 1) * nx + j * nx + i;
+  };
+  auto z_face_id = [&](Index i, Index j, Index k) {
+    return fx_count + fy_count + k * ny * nx + j * nx + i;
+  };
+
+  Mesh m;
+
+  const Index num_nodes = (nx + 1) * (ny + 1) * (nz + 1);
+  m.node_x.reserve(num_nodes);
+  m.node_y.reserve(num_nodes);
+  m.node_z.reserve(num_nodes);
+  for (Index k = 0; k <= nz; ++k) {
+    for (Index j = 0; j <= ny; ++j) {
+      for (Index i = 0; i <= nx; ++i) {
+        m.node_x.push_back(spec.x_min + i * dx);
+        m.node_y.push_back(spec.y_min + j * dy);
+        m.node_z.push_back(spec.z_min + k * dz);
+      }
+    }
+  }
+
+  const Index num_cells = nx * ny * nz;
+  m.cell_nodes.reserve(num_cells);
+  m.cell_faces.reserve(num_cells);
+  for (Index k = 0; k < nz; ++k) {
+    for (Index j = 0; j < ny; ++j) {
+      for (Index i = 0; i < nx; ++i) {
+        m.cell_nodes.push_back({node_id(i, j, k), node_id(i + 1, j, k),
+                                node_id(i + 1, j + 1, k), node_id(i, j + 1, k),
+                                node_id(i, j, k + 1), node_id(i + 1, j, k + 1),
+                                node_id(i + 1, j + 1, k + 1),
+                                node_id(i, j + 1, k + 1)});
+        m.cell_faces.push_back({x_face_id(i, j, k), x_face_id(i + 1, j, k),
+                                y_face_id(i, j, k), y_face_id(i, j + 1, k),
+                                z_face_id(i, j, k), z_face_id(i, j, k + 1)});
+      }
+    }
+  }
+
+  const Index num_faces = fx_count + fy_count + nx * ny * (nz + 1);
+  m.face_nodes.reserve(num_faces);
+  m.face_owner.reserve(num_faces);
+  m.face_neighbor.reserve(num_faces);
+
+  // A face on the low side of the domain is owned by the cell above it (seen
+  // through that cell's minus face); every other face is owned by the cell
+  // below it (seen through its plus face), with the cell above as neighbor
+  // unless the face is on the high boundary.
+  auto add_face = [&](Index owner, int local_face, Index neighbor) {
+    std::array<Index, kNodesPerFace> nodes;
+    for (int n = 0; n < kNodesPerFace; ++n) {
+      nodes[n] = m.cell_nodes[owner][kHexFaceNodes[local_face][n]];
+    }
+    m.face_nodes.push_back(nodes);
+    m.face_owner.push_back(owner);
+    m.face_neighbor.push_back(neighbor);
+  };
+
+  for (Index k = 0; k < nz; ++k) {
+    for (Index j = 0; j < ny; ++j) {
+      for (Index i = 0; i <= nx; ++i) {
+        if (i == 0) {
+          add_face(cell_id(0, j, k), kXMinus, kNoCell);
+        } else {
+          add_face(cell_id(i - 1, j, k), kXPlus,
+                   i < nx ? cell_id(i, j, k) : kNoCell);
+        }
+      }
+    }
+  }
+  for (Index k = 0; k < nz; ++k) {
+    for (Index j = 0; j <= ny; ++j) {
+      for (Index i = 0; i < nx; ++i) {
+        if (j == 0) {
+          add_face(cell_id(i, 0, k), kYMinus, kNoCell);
+        } else {
+          add_face(cell_id(i, j - 1, k), kYPlus,
+                   j < ny ? cell_id(i, j, k) : kNoCell);
+        }
+      }
+    }
+  }
+  for (Index k = 0; k <= nz; ++k) {
+    for (Index j = 0; j < ny; ++j) {
+      for (Index i = 0; i < nx; ++i) {
+        if (k == 0) {
+          add_face(cell_id(i, j, 0), kZMinus, kNoCell);
+        } else {
+          add_face(cell_id(i, j, k - 1), kZPlus,
+                   k < nz ? cell_id(i, j, k) : kNoCell);
+        }
+      }
+    }
+  }
+
+  return m;
+}
+
+}  // namespace hydro::mesh
