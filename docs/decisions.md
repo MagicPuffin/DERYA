@@ -30,6 +30,15 @@ stop and report rather than deciding to override it.
   corrected after the first mesh task was built genuinely 2D (quad cells,
   `(i,j)` indexing) — that version is being generalized before anything
   downstream (face-area vectors, the Lagrangian solver) depends on it.
+- **Boundary conditions act on the nodal solver**, not via ghost cells or
+  cell fields (EUCCLHYD, paper refs [29, 30]; the paper itself doesn't spell
+  them out). Each domain side gets one type. Symmetry/wall = `V_p . n = 0`,
+  enforced by a Lagrange-multiplier solve of Eq. 4 (handles edges and corners
+  where 2-3 walls meet, e.g. thin-slab z faces + Sod end walls). Outflow =
+  prescribed pressure `P*` = owner cell pressure, added to `B`. Eq. 4's
+  `M_p`/`B` are assembled over all faces including boundary faces. `bc`
+  depends on `mesh` only. Decided at the start of Task 3, replacing the
+  backlog's placeholder `apply(mesh, fields)` interface.
 
 ## Testing
 - **Tier 1 — unit tests (Catch2):** one function/equation at a time, test

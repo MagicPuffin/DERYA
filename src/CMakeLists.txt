@@ -9,7 +9,7 @@
 
 add_subdirectory(eos)
 add_subdirectory(mesh)
-# add_subdirectory(bc)
+add_subdirectory(bc)
 # add_subdirectory(timestep)
 # add_subdirectory(hydro)
 # add_subdirectory(sync)

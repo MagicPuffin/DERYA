@@ -236,3 +236,38 @@ TEST_CASE("face_area_vectors: trapezoidal face weights nodes unequally", "[mesh]
   check_vec(closure, {0.0, 0.0, 0.0});
   CHECK_THAT(volume, WithinAbs(1.75, 1e-14));
 }
+
+TEST_CASE("generate_structured_mesh: boundary faces tagged with their side",
+          "[mesh]") {
+  StructuredMeshSpec spec;
+  spec.nx = 3;
+  spec.ny = 2;
+  spec.nz = 2;
+  spec.x_max = 3.0;
+  spec.y_max = 1.0;
+  spec.z_max = 0.5;
+  const Mesh m = generate_structured_mesh(spec);
+  REQUIRE(m.face_boundary.size() == static_cast<std::size_t>(m.num_faces()));
+
+  // Side s is local face s of the owner (kHexFaceNodes order), so a boundary
+  // face's center lies on that side's plane.
+  const std::array<double, kFacesPerCell> plane = {
+      spec.x_min, spec.x_max, spec.y_min, spec.y_max, spec.z_min, spec.z_max};
+  std::array<Index, kFacesPerCell> count{};
+  for (Index f = 0; f < m.num_faces(); ++f) {
+    INFO("face " << f);
+    const int side = m.face_boundary[f];
+    if (m.face_neighbor[f] != kNoCell) {
+      CHECK(side == hydro::mesh::kInteriorFace);
+      continue;
+    }
+    REQUIRE(side >= 0);
+    REQUIRE(side < kFacesPerCell);
+    ++count[side];
+    CHECK(m.cell_faces[m.face_owner[f]][side] == f);
+    double center = 0.0;
+    for (Index n : m.face_nodes[f]) center += node(m, n)[side / 2] / kNodesPerFace;
+    CHECK_THAT(center, WithinAbs(plane[side], 1e-14));
+  }
+  CHECK(count == std::array<Index, kFacesPerCell>{4, 4, 6, 6, 6, 6});
+}

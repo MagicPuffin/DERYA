@@ -39,16 +39,29 @@ this file is the source of truth for "what's next," not the chat history.
       (hand-derived 5/12, 1/3 weights) plus closure and GCL volume checks
 - [x] Implement it: `face_area_vectors(mesh, f)`, oriented out of the owner
 
-## Task 3 — Boundary conditions (`src/bc/`)
-- [ ] `BoundaryCondition::apply(mesh, fields)` interface
-- [ ] Reflecting/symmetry BC (test + implement) — needed for Noh
-- [ ] Outflow BC (test + implement) — needed for Sod
-- [ ] (Kidder's prescribed-motion BC waits for its own task batch)
+## Task 3 — Boundary conditions (`src/bc/`) — ✅ DONE
+- [x] Interface. The placeholder `BoundaryCondition::apply(mesh, fields)`
+      was replaced before starting: EUCCLHYD applies BCs at boundary nodes,
+      on the nodal system `M_p V_p = B` (Eq. 4), not on cell fields (see
+      `decisions.md`, "Boundary conditions act on the nodal solver"). One
+      `BoundaryType` per domain side (`BoundarySet`), keyed by the new
+      `Mesh::face_boundary` side tag (flagged mesh edit, tested)
+- [x] Reflecting/symmetry BC: `wall_normals()` (per-node orthonormal wall
+      normals; coplanar faces count once) + `solve_nodal_velocity()`
+      (Lagrange-multiplier solve with `V_p . n = 0`, 0-3 walls). Needed for Noh
+- [x] Outflow BC: `apply_pressure_bcs()`, prescribed pressure P* = owner
+      cell pressure, `B_p -= P* S_pf n_pf`. Test includes a uniform state at
+      rest staying at rest under outflow + symmetry. Needed for Sod
+- [ ] (Kidder's prescribed-motion BC waits for its own task batch; a fixed
+      pressure P* (free surface) is a one-line extension of the outflow BC
+      when a test needs it)
 
 ## Task 4 — Core Lagrangian solver (`src/hydro/`)
 19-task breakdown, paper Sec. 2 — Vec3/index types → face-area vector (Eq. 5;
 already done in Task 2 as `mesh::face_area_vectors`) → corner-area assembly → acoustic impedance Z_c (Eq. 3, needs EOS) → nodal
-solver M_p/B assembly (Eq. 4) → velocity solve → momentum update (Eq. 1) →
+solver M_p/B assembly (Eq. 4, over all faces incl. boundary faces, then
+`bc::apply_pressure_bcs`) → velocity solve (`bc::solve_nodal_velocity`,
+already done in Task 3) → momentum update (Eq. 1) →
 energy update (Eq. 1) → node position update (Eq. 2) → single-patch
 integration test. Each implementation task preceded by its own test task.
 (Full table in the original chat planning doc if the detail is needed again

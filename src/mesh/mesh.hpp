@@ -13,6 +13,9 @@ using Index = std::int32_t;
 // Face neighbor of a boundary face.
 inline constexpr Index kNoCell = -1;
 
+// face_boundary of an interior face.
+inline constexpr int kInteriorFace = -1;
+
 inline constexpr int kNodesPerCell = 8;
 inline constexpr int kFacesPerCell = 6;
 inline constexpr int kNodesPerFace = 4;
@@ -41,6 +44,9 @@ inline constexpr std::array<std::array<int, kNodesPerFace>, kFacesPerCell>
 //   - Every face has an owner cell; face_nodes is ordered so the right-hand
 //     normal points out of the owner, into the neighbor. Boundary faces have
 //     neighbor kNoCell.
+//   - face_boundary is the domain side of a boundary face, numbered like the
+//     local faces of kHexFaceNodes (-x, +x, -y, +y, -z, +z), and kInteriorFace
+//     for an interior face.
 struct Mesh {
   std::vector<double> node_x;
   std::vector<double> node_y;
@@ -52,6 +58,7 @@ struct Mesh {
   std::vector<std::array<Index, kNodesPerFace>> face_nodes;
   std::vector<Index> face_owner;
   std::vector<Index> face_neighbor;
+  std::vector<int> face_boundary;
 
   Index num_nodes() const { return static_cast<Index>(node_x.size()); }
   Index num_cells() const { return static_cast<Index>(cell_nodes.size()); }

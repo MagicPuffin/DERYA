@@ -70,11 +70,13 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
   m.face_nodes.reserve(num_faces);
   m.face_owner.reserve(num_faces);
   m.face_neighbor.reserve(num_faces);
+  m.face_boundary.reserve(num_faces);
 
   // A face on the low side of the domain is owned by the cell above it (seen
   // through that cell's minus face); every other face is owned by the cell
   // below it (seen through its plus face), with the cell above as neighbor
-  // unless the face is on the high boundary.
+  // unless the face is on the high boundary. A boundary face's side is the
+  // owner's local face it was seen through.
   auto add_face = [&](Index owner, int local_face, Index neighbor) {
     std::array<Index, kNodesPerFace> nodes;
     for (int n = 0; n < kNodesPerFace; ++n) {
@@ -83,6 +85,7 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
     m.face_nodes.push_back(nodes);
     m.face_owner.push_back(owner);
     m.face_neighbor.push_back(neighbor);
+    m.face_boundary.push_back(neighbor == kNoCell ? local_face : kInteriorFace);
   };
 
   for (Index k = 0; k < nz; ++k) {
