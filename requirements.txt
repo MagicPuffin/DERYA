@@ -2,3 +2,5 @@
 # install directly from its GitHub repo. Discovered during Task 0 bootstrap.
 git+https://github.com/lanl/ExactPack.git
 numpy
+matplotlib   # exactpack.solvers.riemann.ep_riemann imports pyplot at module
+             # load time, even though we only use exact-solution generation

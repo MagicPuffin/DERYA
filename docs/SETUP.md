@@ -36,3 +36,12 @@ python3 scripts/gen_oracle_data.py
 - **`target_link_libraries` must list `nlohmann_json::nlohmann_json`
   explicitly** — linking only `Catch2::Catch2WithMain` builds but fails at the
   `#include <nlohmann/json.hpp>` compile step in any file that needs it.
+- **`requirements.txt` needs `matplotlib` explicitly, even though nothing here
+  plots anything.** `exactpack/solvers/riemann/ep_riemann.py` does
+  `import matplotlib.pyplot as plt` at module load time, so importing
+  `IGEOS_Solver` fails with `ModuleNotFoundError: No module named
+  'matplotlib'` on a clean venv that doesn't happen to have it already
+  installed. This didn't surface during the original bootstrap because the
+  sandbox environment used to verify Task 0 had matplotlib preinstalled for
+  unrelated reasons — a real gap in that verification, not just a missing
+  requirements line. `requirements.txt` now lists it explicitly.
