@@ -1,0 +1,18 @@
+{
+  "mesh": {
+    "cells": [100, 1, 1],
+    "min": [0.0, 0.0, 0.0],
+    "max": [1.0, 0.01, 0.01]
+  },
+  "eos": {"type": "ideal_gas", "gamma": 1.6666666666666667},
+  "boundaries": {
+    "x_min": "symmetry", "x_max": "outflow",
+    "y_min": "symmetry", "y_max": "symmetry",
+    "z_min": "symmetry", "z_max": "symmetry"
+  },
+  "initial": {
+    "background": {"density": 1.0, "velocity": [-1.0, 0.0, 0.0], "pressure": 0.0}
+  },
+  "time": {"t_end": 0.6, "dt_initial": 1e-4},
+  "output": {"path": "noh_final.json", "log_every": 200}
+}

@@ -5,7 +5,8 @@ and writes the final state as a JSON dump. The dump path is the second
 argument, or `output.path` from the deck. Relative paths are resolved
 against the current directory. Warnings, such as the thin-slab guard, go to
 stderr. A failed run exits with status 1 and reports the step and time
-where it failed. Example: [decks/sod.json](../decks/sod.json).
+where it failed. Examples: [decks/sod.json](../decks/sod.json),
+[decks/noh.json](../decks/noh.json).
 
 The reader rejects unknown keys, so a misspelled key is an error, not a
 silently ignored setting. The parser is in `src/io/deck.cpp`.
@@ -53,4 +54,4 @@ boundary types. The restart schema is deferred to v1.0 (`roadmap.md`).
 
 To compare a dump with an exact solution:
 `python3 scripts/plot_comparison.py DUMP [--oracle FILE] [--gamma G] [-o PNG]`
-(defaults: Sod, 1.4, `comparison.png`).
+(defaults: the Sod oracle, the oracle's gamma or 1.4, `comparison.png`).

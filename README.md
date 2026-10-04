@@ -17,7 +17,8 @@ Fusion deliverable.
 **v0.1 in progress** (first-order Lagrangian hydro, no AMR). The EOS, mesh,
 boundary conditions, the first-order Lagrangian step and the timestep
 controller are done and unit-tested. The `hydro_run` driver runs JSON decks;
-Sod through it matches the exact solution. Noh and Saltzman decks are next.
+Sod and planar Noh through it match their exact solutions. Saltzman, the
+last v0.1 test, is next.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -42,7 +43,7 @@ Sod through it matches the exact solution. Noh and Saltzman decks are next.
 - `hydro_run <deck.json> [dump.json]`: runs a JSON deck (mesh, ideal gas,
   boundaries, initial regions, time control) and writes the final state as
   JSON. `decks/sod.json` gives L1 density error 0.0195 against the exact
-  solution in 211 steps. `scripts/plot_comparison.py` plots a dump against
+  solution in 211 steps, `decks/noh.json` 0.0194 in 856 steps. `scripts/plot_comparison.py` plots a dump against
   the exact solution. Formats: [docs/deck_format.md](docs/deck_format.md)
 
 ## Out of scope for v1.0
@@ -68,13 +69,15 @@ To run Sod and plot it (the plot needs the Python environment below):
 python3 scripts/plot_comparison.py sod_final.json -o sod.png
 ```
 
+For Noh, use `decks/noh.json` and add `--oracle tests/oracle_data/noh.json`.
+
 Oracle data (exact solutions from ExactPack) is committed under
 `tests/oracle_data/`. To regenerate it:
 
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python3 scripts/gen_oracle_data.py
+python3 scripts/gen_oracle_data.py [case ...]    # e.g. noh; default: all
 ```
 
 [docs/SETUP.md](docs/SETUP.md) lists the verified toolchain versions and the

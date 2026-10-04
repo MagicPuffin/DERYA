@@ -54,6 +54,60 @@ void check_rejected(const json& j, const std::string& message) {
   CHECK_THROWS_WITH(parse_deck(j.dump()), ContainsSubstring(message));
 }
 
+// Runs the hydro_run executable on decks/<name>.json and returns its dump.
+json run_hydro(const std::string& name) {
+  const auto dump_path =
+      (std::filesystem::temp_directory_path() / ("hydro_test_" + name + "_dump.json")).string();
+  std::filesystem::remove(dump_path);
+  const std::string cmd = std::string("\"") + HYDRO_RUN_EXE + "\" \"" + DECK_DIR + "/" +
+                          name + ".json\" \"" + dump_path + "\" > /dev/null";
+  REQUIRE(std::system(cmd.c_str()) == 0);
+  std::ifstream in(dump_path);
+  REQUIRE(in);
+  const json dump = json::parse(in);
+  std::filesystem::remove(dump_path);
+  CHECK(dump["format"] == "hydro-dump-0");
+  return dump;
+}
+
+json read_oracle(const std::string& name) {
+  std::ifstream in(std::string(ORACLE_DATA_DIR) + "/" + name + ".json");
+  REQUIRE(in);
+  return json::parse(in);
+}
+
+// Linear interpolation of an oracle field, except across the oracle's
+// "jumps" (when it lists them): a point on either side of a jump between two
+// samples takes the sample on its own side, since interpolating would invent
+// values the exact solution never takes.
+double exact_at(const json& oracle, const std::vector<double>& field, double x) {
+  const auto xs = oracle["x"].get<std::vector<double>>();
+  std::size_t i = 1;
+  while (i + 1 < xs.size() && xs[i] < x) ++i;
+  if (oracle.contains("jumps")) {
+    for (const double jump : oracle["jumps"].get<std::vector<double>>()) {
+      if (xs[i - 1] < jump && jump <= xs[i]) return x < jump ? field[i - 1] : field[i];
+    }
+  }
+  const double w = (x - xs[i - 1]) / (xs[i] - xs[i - 1]);
+  return (1.0 - w) * field[i - 1] + w * field[i];
+}
+
+// L1 density error of a slab dump: sum_c |rho_c - rho(x_c)| V_c / area, with
+// area the fixed y-z cross-section, so V_c / area is the cell's length.
+double l1_density_error(const json& dump, const json& oracle, double area) {
+  const auto& cells = dump["cells"];
+  const auto x = cells["centroid_x"].get<std::vector<double>>();
+  const auto volume = cells["volume"].get<std::vector<double>>();
+  const auto rho = cells["density"].get<std::vector<double>>();
+  const auto rho_ex = oracle["density"].get<std::vector<double>>();
+  double l1 = 0.0;
+  for (std::size_t c = 0; c < x.size(); ++c) {
+    l1 += std::abs(rho[c] - exact_at(oracle, rho_ex, x[c])) * volume[c] / area;
+  }
+  return l1;
+}
+
 }  // namespace
 
 TEST_CASE("parse_deck: a valid deck, with defaults", "[io]") {
@@ -197,53 +251,77 @@ TEST_CASE("hydro_run: Sod against the exact solution", "[app][integration]") {
   // hydro_run executable, its dump compared with tests/oracle_data/sod.json.
   // Measured: 211 steps, L1 density error 0.0195 (0.0202 with the fixed
   // dt = 5e-4 of the lagrangian_step test).
-  const auto dump_path =
-      (std::filesystem::temp_directory_path() / "hydro_test_sod_dump.json").string();
-  std::filesystem::remove(dump_path);
-  const std::string cmd = std::string("\"") + HYDRO_RUN_EXE + "\" \"" + DECK_DIR +
-                          "/sod.json\" \"" + dump_path + "\" > /dev/null";
-  REQUIRE(std::system(cmd.c_str()) == 0);
-
-  std::ifstream in(dump_path);
-  REQUIRE(in);
-  const auto dump = json::parse(in);
-  CHECK(dump["format"] == "hydro-dump-0");
+  const json dump = run_hydro("sod");
+  const json oracle = read_oracle("sod");
+  REQUIRE(oracle["t"].get<double>() == 0.2);
   CHECK(dump["t"].get<double>() == 0.2);
   const auto& cells = dump["cells"];
-  const auto x = cells["centroid_x"].get<std::vector<double>>();
   const auto volume = cells["volume"].get<std::vector<double>>();
   const auto mass = cells["mass"].get<std::vector<double>>();
   const auto rho = cells["density"].get<std::vector<double>>();
   const auto vy = cells["velocity_y"].get<std::vector<double>>();
   const auto vz = cells["velocity_z"].get<std::vector<double>>();
-  REQUIRE(x.size() == 400);
+  REQUIRE(rho.size() == 400);
   CHECK(dump["nodes"]["x"].size() == 101 * 3 * 3);
-
-  std::ifstream oin(ORACLE_DATA_DIR "/sod.json");
-  REQUIRE(oin);
-  const auto oracle = json::parse(oin);
-  REQUIRE(oracle["t"].get<double>() == 0.2);
-  const auto x_ex = oracle["x"].get<std::vector<double>>();
-  const auto rho_ex = oracle["density"].get<std::vector<double>>();
-  auto exact = [&](double xc) {
-    std::size_t i = 1;
-    while (i + 1 < x_ex.size() && x_ex[i] < xc) ++i;
-    const double w = (xc - x_ex[i - 1]) / (x_ex[i] - x_ex[i - 1]);
-    return (1.0 - w) * rho_ex[i - 1] + w * rho_ex[i];
-  };
-
-  // The y/z walls do not move, so V_c / (0.02 * 0.02) is the cell's length;
-  // the sum is the mean L1 error of the 4 columns.
-  const double area = 0.02 * 0.02;
-  double l1 = 0.0;
-  for (std::size_t c = 0; c < x.size(); ++c) {
+  for (std::size_t c = 0; c < rho.size(); ++c) {
     INFO("cell " << c);
     CHECK_THAT(vy[c], WithinAbs(0.0, 1e-12));
     CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
     CHECK_THAT(rho[c], WithinRel(mass[c] / volume[c], 1e-12));
-    l1 += std::abs(rho[c] - exact(x[c])) * volume[c] / area;
   }
+  // The sum over the 4 columns' cells, so the mean of their L1 errors.
+  const double l1 = l1_density_error(dump, oracle, 0.02 * 0.02);
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.021);
-  std::filesystem::remove(dump_path);
+}
+
+TEST_CASE("hydro_run: planar Noh against the exact solution", "[app][integration]") {
+  // decks/noh.json: cold gas (gamma = 5/3, rho = 1, u = -1) on 100x1x1 cubic
+  // cells of [0,1]x[0,0.01]x[0,0.01], wall at x = 0, outflow at x = 1 (which
+  // moves with the inflow, to x = 0.4 at t = 0.6), dt^0 = 1e-4, compared with
+  // tests/oracle_data/noh.json: shock at x = 0.2, rho = 4, eps = 1/2 and
+  // u = 0 behind it. Measured: 856 steps, plateau rho 3.990-4.001 and eps
+  // 0.4999-0.5013 on [0.04, 0.18], wall heating in the cells at the wall
+  // (rho 2.51, 3.64), L1 density error 0.0194 (0.0188 with the fixed
+  // dt = 5e-4 of the lagrangian_step Noh test).
+  const json dump = run_hydro("noh");
+  const json oracle = read_oracle("noh");
+  REQUIRE(oracle["t"].get<double>() == 0.6);
+  CHECK(dump["t"].get<double>() == 0.6);
+  const auto& cells = dump["cells"];
+  const auto x = cells["centroid_x"].get<std::vector<double>>();
+  const auto mass = cells["mass"].get<std::vector<double>>();
+  const auto rho = cells["density"].get<std::vector<double>>();
+  const auto u = cells["velocity_x"].get<std::vector<double>>();
+  const auto vy = cells["velocity_y"].get<std::vector<double>>();
+  const auto vz = cells["velocity_z"].get<std::vector<double>>();
+  const auto eps = cells["internal_energy"].get<std::vector<double>>();
+  REQUIRE(rho.size() == 100);
+
+  // Neither the wall nor the cold outflow (P* = 0) does work: the total
+  // energy stays that of the inflow, sum m |u|^2 / 2.
+  double e0 = 0.0, e = 0.0;
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    e0 += 0.5 * mass[c];
+    e += mass[c] * (eps[c] + 0.5 * (u[c] * u[c] + vy[c] * vy[c] + vz[c] * vz[c]));
+  }
+  CHECK_THAT(e, WithinRel(e0, 1e-12));
+
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    INFO("cell " << c << " at x = " << x[c]);
+    CHECK_THAT(vy[c], WithinAbs(0.0, 1e-12));
+    CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+    if (x[c] > 0.04 && x[c] < 0.18) {
+      CHECK_THAT(rho[c], WithinRel(4.0, 0.01));
+      CHECK_THAT(eps[c], WithinRel(0.5, 0.01));
+      CHECK_THAT(u[c], WithinAbs(0.0, 1e-4));
+    }
+    if (x[c] > 0.25) {
+      CHECK_THAT(rho[c], WithinRel(1.0, 1e-10));
+      CHECK_THAT(u[c], WithinAbs(-1.0, 1e-10));
+    }
+  }
+  const double l1 = l1_density_error(dump, oracle, 0.01 * 0.01);
+  INFO("L1 density error " << l1);
+  CHECK(l1 < 0.021);
 }

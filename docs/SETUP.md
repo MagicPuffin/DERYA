@@ -20,7 +20,7 @@ dependency until v0.4 (see `docs/NOTES.md`).
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python3 scripts/gen_oracle_data.py
+python3 scripts/gen_oracle_data.py           # all cases; or name some, e.g. noh
 ```
 
 ## Gotchas hit during bootstrap (Task 0), recorded so they aren't rediscovered
@@ -54,4 +54,5 @@ python3 scripts/gen_oracle_data.py
   between library builds; `requirements.txt` doesn't pin versions. Don't
   commit a regenerated oracle file whose only changes are at this level: the
   committed file is the reference, and regression tests compare against it
-  with a tolerance, never exact equality.
+  with a tolerance, never exact equality. To add a case without touching the others, name
+  it: `python3 scripts/gen_oracle_data.py noh`.

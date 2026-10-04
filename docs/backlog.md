@@ -161,7 +161,44 @@ Files: new `src/io/` (`deck`, `dump`), new `src/app/` (`driver`, `main.cpp`
 - Failure policy (roadmap gap) is unchanged: a failed step stops the run
   with exit status 1 and no dump
 
-## After Task 6
-Extend the same pattern to Noh and Saltzman (v0.1's actual acceptance bar).
-v0.2 backlog (second-order MUSCL/SP-V reconstruction, paper Sec. 2.3) gets
-written once v0.1 is genuinely done, not before.
+## Task 7 — Noh through the driver — ✅ DONE
+Files: `scripts/gen_oracle_data.py`, new `tests/oracle_data/noh.json`, new
+`decks/noh.json`, `tests/unit/test_driver.cpp`, `scripts/plot_comparison.py`.
+- [x] Oracle: planar Noh from ExactPack's `PlanarNoh` (gamma = 5/3, rho0 = 1,
+      u0 = -1, t = 0.6) in `gen_oracle_data.py`, written without
+      regenerating `sod.json` (`gen_oracle_data.py [case ...]`). `PlanarNoh`
+      takes only gamma (rho0, u0 are fixed defaults, asserted), and its
+      pressure formula hard-codes gamma = 5/3. `noh.json` also stores gamma,
+      eps and the shock position (`jumps`)
+- [x] `decks/noh.json`: 100x1x1 cubic cells of [0,1]x[0,0.01]x[0,0.01], cold
+      inflow, wall at x = 0, outflow at x = 1, `dt_initial` = 1e-4
+- [x] Acceptance test running `hydro_run` on it: plateau rho and eps within
+      1% of 4 and 1/2, untouched inflow ahead of the shock, total energy
+      conserved to 1e-12, L1 density error vs `noh.json` 0.0194 in 856 steps
+      (bound 0.021). Comparisons no longer interpolate the oracle across a
+      listed jump: plain interpolation over the 0.005 sample spacing gave
+      0.0219, because cells 0.0025 wide next to the shock got invented
+      intermediate "exact" values. The run-and-compare code of the Sod test
+      moved into shared helpers (Sod unchanged at 0.0195)
+- [x] `plot_comparison.py` handles Noh: exact eps from the oracle (or its
+      gamma) rather than the Sod default gamma = 1.4, jumps drawn as
+      vertical steps, x axis limited to the mesh's current extent. The Noh
+      plot shows the classic wall heating (eps 0.80, rho 2.51 at the wall)
+      and a shock ~3 cells wide
+
+## Task 8 — Saltzman piston
+Needs two new features before the test itself; split further when started.
+- [ ] Moving-piston BC: a wall with prescribed normal velocity,
+      `V_p . n = u_piston` (extends `bc::solve_nodal_velocity`). Kidder will
+      need prescribed motion too
+- [ ] Skewed initial mesh: Saltzman's node perturbation, as a deck option
+      and in the mesh generator (or a separate perturbation function)
+- [ ] Oracle: the planar piston shock (exact, simple)
+- [ ] Deck + acceptance test through `hydro_run`. First-order schemes are
+      known to distort on this mesh; if it tangles, that forces the
+      numerical failure policy (`roadmap.md`) to be decided
+
+## After Task 8
+v0.1 is done when Sod, Noh and Saltzman pass at one resolution. The v0.2
+backlog (second-order MUSCL/SP-V reconstruction, paper Sec. 2.3) gets
+written then, not before.
