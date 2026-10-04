@@ -71,10 +71,40 @@ def gen_noh():
     }
 
 
+def gen_saltzman():
+    """Saltzman piston: cold gas, rho0 = 1, at rest, gamma = 5/3, pushed by a
+    piston at x = t (velocity 1). It is planar Noh in the piston's frame
+    (x' = x - t, u' = u - 1), so it comes from PlanarNoh shifted back: shock at
+    x = 4t/3 = 0.8 at t = 0.6, rho = 4, u = 1, eps = 1/2, P = 4/3 behind it.
+    Sampled only where there is gas, x in [t, 1]."""
+    gamma = 5.0 / 3.0
+    t = 0.6
+    solver = PlanarNoh(gamma=gamma)
+    assert solver.rho0 == 1.0 and solver.u0 == -1.0
+    x = np.linspace(t, 1.0, 81)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        result = solver(x - t, t=t)
+    return {
+        "case": "saltzman",
+        "description": "Saltzman piston (u = 1, gamma = 5/3, rho0 = 1), from ExactPack "
+                       "PlanarNoh in the piston frame",
+        "t": t,
+        "gamma": gamma,
+        "x": x.tolist(),
+        "density": result["density"].tolist(),
+        "pressure": result["pressure"].tolist(),
+        "velocity": (result["velocity"] + 1.0).tolist(),
+        "specific_internal_energy": result["specific_internal_energy"].tolist(),
+        "jumps": [float(j) + t for j in result.jumps],
+    }
+
+
 CASES = {
     "sod": gen_sod,
     "noh": gen_noh,
-    # "saltzman": ..., "kidder": ..., "guderley": ... — added as
+    "saltzman": gen_saltzman,
+    # "kidder": ..., "guderley": ... — added as
     # each test lands in the v0.1/v0.2/v0.3 backlog, one CASES entry at a time.
 }
 

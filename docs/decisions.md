@@ -38,7 +38,10 @@ stop and report rather than deciding to override it.
   prescribed pressure `P*` = owner cell pressure, added to `B`. Eq. 4's
   `M_p`/`B` are assembled over all faces including boundary faces. `bc`
   depends on `mesh` only. Decided at the start of Task 3, replacing the
-  backlog's placeholder `apply(mesh, fields)` interface.
+  backlog's placeholder `apply(mesh, fields)` interface. Piston = a wall
+  moving with velocity `u_w`, `V_p . n = u_w . n` (Task 8): the nodal solver
+  starts from a guess with that normal part and takes Newton steps tangent
+  to the walls, so the wall solve itself is unchanged.
 - **Two-shock (Dukowicz) impedance in the nodal solver**, not the paper's
   acoustic `Z_c = rho_c a_c`: `Z_cfp = rho_c (a_c + Gamma_c |(V_p - V_c) . n_pf|)`
   per cell, face and node, with `Gamma = (gamma+1)/2` for an ideal gas (from
@@ -63,6 +66,9 @@ stop and report rather than deciding to override it.
   up to the Newton residual. A cold, moving gas also needs
   `eps = E - |V|^2/2` clamped to 0 when it is negative by round-off (it
   throws beyond 1e-13 of the kinetic energy). Decided before Task 5 (Task 4b).
+  A Jacobian whose trace is below `DBL_MIN / 1e-8` also counts as singular,
+  because its regularization would underflow (subnormal precursors ahead of
+  the Saltzman shock gave 0/0; Task 8).
 - **Lagrangian timestep** (the paper gives none; EUCCLHYD practice, after
   Maire et al.): `dt^{n+1} = min(C_cfl min_c lambda_c / a_c,
   C_V min_c V_c / |dV_c/dt|, C_M dt^n, dt_max)`, with `lambda_c = V_c /

@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <array>
+#include <cmath>
 #include <vector>
 
 #include "mesh.hpp"
@@ -14,6 +15,7 @@ using hydro::mesh::kNodesPerFace;
 using hydro::mesh::kNoCell;
 using hydro::mesh::Mesh;
 using hydro::mesh::StructuredMeshSpec;
+using hydro::mesh::apply_saltzman_skew;
 using hydro::mesh::face_area_vectors;
 using hydro::mesh::generate_structured_mesh;
 
@@ -270,4 +272,41 @@ TEST_CASE("generate_structured_mesh: boundary faces tagged with their side",
     CHECK_THAT(center, WithinAbs(plane[side], 1e-14));
   }
   CHECK(count == std::array<Index, kFacesPerCell>{4, 4, 6, 6, 6, 6});
+}
+
+TEST_CASE("apply_saltzman_skew: the standard 100x10 Saltzman mesh", "[mesh]") {
+  // x_ij = i dx + (10 - j) dy sin(pi i dx), dx = dy = 0.01; z unchanged.
+  StructuredMeshSpec spec{100, 10, 1, 0.0, 1.0, 0.0, 0.1, 0.0, 0.01};
+  Mesh m = generate_structured_mesh(spec);
+  const Mesh plain = m;
+  apply_saltzman_skew(m, spec);
+  auto node = [](Index i, Index j, Index k) { return k * 11 * 101 + j * 101 + i; };
+  for (Index k = 0; k <= 1; ++k) {
+    CHECK_THAT(m.node_x[node(50, 0, k)], WithinAbs(0.6, 1e-15));
+    CHECK_THAT(m.node_x[node(50, 10, k)], WithinAbs(0.5, 1e-15));
+    CHECK_THAT(m.node_x[node(25, 4, k)],
+               WithinAbs(0.25 + 0.06 * std::sin(std::acos(-1.0) / 4.0), 1e-15));
+    for (Index j = 0; j <= 10; ++j) {
+      CHECK_THAT(m.node_x[node(0, j, k)], WithinAbs(0.0, 1e-15));
+      CHECK_THAT(m.node_x[node(100, j, k)], WithinAbs(1.0, 1e-15));
+    }
+  }
+  CHECK(m.node_y == plain.node_y);
+  CHECK(m.node_z == plain.node_z);
+
+  // Every cell stays valid: its bottom quad (planar in z) has positive area,
+  // and the areas add up to the unchanged domain.
+  double total = 0.0;
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const auto& cn = m.cell_nodes[c];
+    double area = 0.0;
+    for (int a = 0; a < 4; ++a) {
+      const Index p = cn[a], q = cn[(a + 1) % 4];
+      area += 0.5 * (m.node_x[p] * m.node_y[q] - m.node_x[q] * m.node_y[p]);
+    }
+    INFO("cell " << c);
+    CHECK(area > 0.0);
+    total += area;
+  }
+  CHECK_THAT(total, WithinAbs(0.1, 1e-14));
 }

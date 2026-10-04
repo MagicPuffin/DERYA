@@ -9,12 +9,14 @@
 #include "mesh.hpp"
 
 using Catch::Matchers::WithinAbs;
+using hydro::bc::Boundary;
 using hydro::bc::BoundarySet;
 using hydro::bc::BoundaryType;
 using hydro::bc::Mat3;
 using hydro::bc::Vec3;
 using hydro::bc::apply_pressure_bcs;
 using hydro::bc::solve_nodal_velocity;
+using hydro::bc::wall_constraints;
 using hydro::bc::wall_normals;
 using hydro::mesh::Index;
 using hydro::mesh::Mesh;
@@ -125,6 +127,52 @@ TEST_CASE("wall_normals: outflow sides impose no wall", "[bc]") {
 
   const BoundarySet none = {kOut, kOut, kOut, kOut, kOut, kOut};
   for (const auto& w : wall_normals(m, none)) CHECK(w.empty());
+}
+
+TEST_CASE("wall_constraints: a piston prescribes the normal velocity", "[bc]") {
+  // 2x2x1 slab, piston on -x moving with (1, 0.5, 0): only its normal part
+  // (1, 0, 0) is prescribed. The other sides are symmetry walls, which
+  // prescribe zero.
+  const Mesh m = generate_structured_mesh({2, 2, 1});
+  const BoundarySet bcs = {Boundary(BoundaryType::Piston, {1.0, 0.5, 0.0}),
+                           kSym, kSym, kSym, kSym, kSym};
+  const auto walls = wall_constraints(m, bcs);
+  CHECK(wall_axes(walls.normals[3]) == std::vector<int>{0, 2});  // -x edge
+  CHECK(wall_axes(walls.normals[4]) == std::vector<int>{2});     // center
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    INFO("node " << p);
+    const bool on_piston = m.node_x[p] == 0.0;
+    check_vec(walls.velocity[p], {on_piston ? 1.0 : 0.0, 0.0, 0.0});
+  }
+  CHECK(wall_normals(m, bcs) == walls.normals);
+}
+
+TEST_CASE("wall_constraints: piston meeting a wall at an angle", "[bc]") {
+  // Unit cube with its y = 1 nodes shifted by 0.5 in x, so the -x face (a
+  // piston, velocity (2, 0, 0)) meets the -y symmetry face at 63 degrees.
+  // Gram-Schmidt must carry the piston value onto the orthogonalized
+  // normal: at node 0 the prescribed part u0 is in the span of the two face
+  // normals n1, n2 and has u0 . n1 = (2, 0, 0) . n1, u0 . n2 = 0.
+  Mesh m = generate_structured_mesh({1, 1, 1});
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    if (m.node_y[p] == 1.0) m.node_x[p] += 0.5;
+  }
+  const BoundarySet bcs = {Boundary(BoundaryType::Piston, {2.0, 0.0, 0.0}),
+                           kSym, kSym, kSym, kOut, kOut};
+  const auto walls = wall_constraints(m, bcs);
+  REQUIRE(walls.normals[0].size() == 2);
+  const Vec3 n1 = normalized({-1.0, 0.5, 0.0});  // -x face, outward
+  const Vec3 n2 = {0.0, -1.0, 0.0};              // -y face
+  const Vec3& u0 = walls.velocity[0];
+  CHECK_THAT(dot(u0, n1), WithinAbs(2.0 * n1[0], 1e-14));
+  CHECK_THAT(dot(u0, n2), WithinAbs(0.0, 1e-14));
+  CHECK_THAT(u0[2], WithinAbs(0.0, 1e-14));  // no component off the normals
+
+  // A Newton step from u0 (tangent to the walls) keeps both constraints.
+  const Vec3 step = solve_nodal_velocity(kM, kB, walls.normals[0]);
+  const Vec3 V = {u0[0] + step[0], u0[1] + step[1], u0[2] + step[2]};
+  CHECK_THAT(dot(V, n1), WithinAbs(2.0 * n1[0], 1e-14));
+  CHECK_THAT(dot(V, n2), WithinAbs(0.0, 1e-14));
 }
 
 TEST_CASE("apply_pressure_bcs: outflow force on x-boundary nodes", "[bc]") {

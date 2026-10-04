@@ -24,11 +24,21 @@ Vec3 orthogonal_part(Vec3 v, const std::vector<Vec3>& basis) {
   return v;
 }
 
-// Appends v to the orthonormal basis if it is independent of it.
-void add_if_independent(const Vec3& v, std::vector<Vec3>& basis) {
-  const Vec3 w = orthogonal_part(v, basis);
+// Appends the unit vector n to the orthonormal basis if it is independent of
+// it, with the constraint V . n = value carried along by Gram-Schmidt:
+// V . e = (value - sum_k (n . e_k) values_k) / |n - sum_k (n . e_k) e_k|.
+void add_if_independent(const Vec3& n, double value, std::vector<Vec3>& basis,
+                        std::vector<double>& values) {
+  Vec3 w = n;
+  for (std::size_t k = 0; k < basis.size(); ++k) {
+    const double c = dot(n, basis[k]);
+    for (int d = 0; d < 3; ++d) w[d] -= c * basis[k][d];
+    value -= c * values[k];
+  }
   const double norm = std::sqrt(dot(w, w));
-  if (norm > kCoplanarTol) basis.push_back({w[0] / norm, w[1] / norm, w[2] / norm});
+  if (norm <= kCoplanarTol) return;
+  basis.push_back({w[0] / norm, w[1] / norm, w[2] / norm});
+  values.push_back(value / norm);
 }
 
 }  // namespace
@@ -38,7 +48,7 @@ void apply_pressure_bcs(const mesh::Mesh& m, const BoundarySet& bcs,
                         std::vector<Vec3>& B) {
   for (mesh::Index f = 0; f < m.num_faces(); ++f) {
     const int side = m.face_boundary[f];
-    if (side == mesh::kInteriorFace || bcs[side] != BoundaryType::Outflow) continue;
+    if (side == mesh::kInteriorFace || bcs[side].type != BoundaryType::Outflow) continue;
     const double p_star = cell_pressure[m.face_owner[f]];
     const auto vecs = mesh::face_area_vectors(m, f);
     for (int n = 0; n < mesh::kNodesPerFace; ++n) {
@@ -48,19 +58,38 @@ void apply_pressure_bcs(const mesh::Mesh& m, const BoundarySet& bcs,
   }
 }
 
-std::vector<std::vector<Vec3>> wall_normals(const mesh::Mesh& m,
-                                            const BoundarySet& bcs) {
-  std::vector<std::vector<Vec3>> walls(m.num_nodes());
+WallConstraints wall_constraints(const mesh::Mesh& m, const BoundarySet& bcs) {
+  WallConstraints walls;
+  walls.normals.resize(m.num_nodes());
+  walls.velocity.assign(m.num_nodes(), Vec3{0.0, 0.0, 0.0});
+  // Per node, V . e_k for the basis vectors e_k in walls.normals.
+  std::vector<std::vector<double>> values(m.num_nodes());
   for (mesh::Index f = 0; f < m.num_faces(); ++f) {
     const int side = m.face_boundary[f];
-    if (side == mesh::kInteriorFace || bcs[side] != BoundaryType::Symmetry) continue;
+    if (side == mesh::kInteriorFace || bcs[side].type == BoundaryType::Outflow) continue;
     Vec3 normal = {0.0, 0.0, 0.0};
     for (const auto& v : mesh::face_area_vectors(m, f)) {
       for (int d = 0; d < 3; ++d) normal[d] += v[d];
     }
-    for (mesh::Index p : m.face_nodes[f]) add_if_independent(normal, walls[p]);
+    const double norm = std::sqrt(dot(normal, normal));
+    for (int d = 0; d < 3; ++d) normal[d] /= norm;
+    const double value =
+        bcs[side].type == BoundaryType::Piston ? dot(bcs[side].velocity, normal) : 0.0;
+    for (mesh::Index p : m.face_nodes[f]) {
+      add_if_independent(normal, value, walls.normals[p], values[p]);
+    }
+  }
+  for (mesh::Index p = 0; p < m.num_nodes(); ++p) {
+    for (std::size_t k = 0; k < values[p].size(); ++k) {
+      for (int d = 0; d < 3; ++d) walls.velocity[p][d] += values[p][k] * walls.normals[p][k][d];
+    }
   }
   return walls;
+}
+
+std::vector<std::vector<Vec3>> wall_normals(const mesh::Mesh& m,
+                                            const BoundarySet& bcs) {
+  return wall_constraints(m, bcs).normals;
 }
 
 Vec3 solve_nodal_velocity(const Mat3& M, const Vec3& B,

@@ -17,7 +17,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 ## Additional standard tests (not in the paper)
 | Test | Stresses | Priority |
 |---|---|---|
-| Saltzman piston | mesh-misalignment robustness | High — v0.1/v0.2 |
+| Saltzman piston | mesh-misalignment robustness | High — passes at 1 resolution via `hydro_run` (v0.1; L1 density 0.0454, 100×10) |
 | **Kidder ball** | no spurious entropy under isentropic compression | **High** — most relevant to FLARE's actual drive regime |
 | **Guderley converging shock** | converging-shock focusing, cylindrical symmetry | **High** — most relevant to cylindrical implosion geometry |
 | LeBlanc | severe density/pressure jump, Riemann robustness | Medium |

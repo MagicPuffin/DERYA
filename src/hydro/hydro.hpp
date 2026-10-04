@@ -92,11 +92,12 @@ NodalSystem assemble_nodal_system(const HydroState& s,
                                   const std::vector<CornerValues>& impedance);
 
 // Nodal velocities V_p solving Eq. 4 with the two-shock Z_cfp, subject to the
-// boundary conditions (outflow pressures in B, symmetry walls on V_p). Z_cfp
-// depends on V_p, so each node's system is nonlinear; it is the gradient of a
-// convex function of V_p, solved by Newton's method from the mean of the
-// surrounding cell velocities. Where M_p is singular (cold cells all moving
-// alike) the forces do not depend on V_p and it keeps that mean. Throws
+// boundary conditions (outflow pressures in B, symmetry and piston walls on
+// V_p). Z_cfp depends on V_p, so each node's system is nonlinear; it is the
+// gradient of a convex function of V_p, solved by Newton's method from the
+// mean of the surrounding cell velocities (moved onto the walls). Where M_p is
+// singular (cold cells all moving alike) the forces do not depend on V_p and
+// it keeps that initial value. Throws
 // std::runtime_error if Newton does not converge.
 std::vector<Vec3> nodal_velocities(const HydroState& s,
                                    const std::vector<CellFaceVectors>& faces,

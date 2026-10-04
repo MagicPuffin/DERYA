@@ -186,19 +186,50 @@ Files: `scripts/gen_oracle_data.py`, new `tests/oracle_data/noh.json`, new
       plot shows the classic wall heating (eps 0.80, rho 2.51 at the wall)
       and a shock ~3 cells wide
 
-## Task 8 — Saltzman piston
-Needs two new features before the test itself; split further when started.
-- [ ] Moving-piston BC: a wall with prescribed normal velocity,
-      `V_p . n = u_piston` (extends `bc::solve_nodal_velocity`). Kidder will
-      need prescribed motion too
-- [ ] Skewed initial mesh: Saltzman's node perturbation, as a deck option
-      and in the mesh generator (or a separate perturbation function)
-- [ ] Oracle: the planar piston shock (exact, simple)
-- [ ] Deck + acceptance test through `hydro_run`. First-order schemes are
-      known to distort on this mesh; if it tangles, that forces the
-      numerical failure policy (`roadmap.md`) to be decided
+## Task 8 — Saltzman piston — ✅ DONE (v0.1 gate met)
+Files: `src/bc/bc.{hpp,cpp}`, `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
+`src/app/driver.{hpp,cpp}`, `scripts/gen_oracle_data.py`, new
+`tests/oracle_data/saltzman.json`, new `decks/saltzman.json`,
+`tests/unit/test_{bc,mesh,hydro,driver}.cpp`. Flagged: `src/hydro/hydro.{hpp,cpp}`
+(piston walls in the Newton initial guess; underflow guard, below).
+- [x] Moving-piston BC: `BoundaryType::Piston`, a wall moving with velocity
+      u_w, `V_p . n = u_w . n`, tangential motion free. `BoundarySet` is now
+      an array of `bc::Boundary {type, velocity}`, implicitly constructible
+      from a `BoundaryType`, so existing `{kOut, kSym, ...}` initializers are
+      unchanged. `bc::wall_constraints()` gives each node's orthonormal wall
+      normals plus the prescribed normal part of V_p (Gram-Schmidt carries
+      the values); `nodal_velocities` adds it to the initial guess and the
+      Newton steps stay tangent, so `solve_nodal_velocity` is unchanged.
+      Tests: prescribed part on a slab; piston meeting a wall at 63 degrees;
+      one step of a piston into cold gas gives the exact post-shock pressure
+      4/3 (P = rho Gamma s^2) and the matching work
+- [x] Skewed initial mesh: `mesh::apply_saltzman_skew()`, x += (y_max - y)
+      sin(pi (x - x_min) / L); deck key `mesh.perturbation: "saltzman"`.
+      Test: node positions of the standard 100x10 mesh, positive cell areas
+      summing to the domain
+- [x] Oracle: planar Noh in the piston frame (ExactPack has no gas piston;
+      its `ep_piston` is elastic-plastic), shifted back: shock at x = 0.8,
+      piston at 0.6 at t = 0.6. Sampled on [0.6, 1] only
+- [x] Deck + acceptance test through `hydro_run` (100x10x1, standard
+      Saltzman setup to t = 0.6): no tangling, 1052 steps. Shock in every
+      row within x = 0.789-0.811 (tilted along the initial skew, as for
+      first-order schemes), plateau rho 3.87-4.22 per cell with mass-weighted
+      means rho 4.009, u 0.998, eps 0.504, an overshoot (4.75) where the
+      shock meets the top wall, energy -1.2% from the exact piston work, gas
+      ahead untouched, L1 density error 0.0454 (bound 0.05)
+- [x] Found on the way, in the nodal solver: on the skewed mesh, cold gas
+      ahead of the shock carries velocity precursors that decay to
+      subnormal values (1e-315 and below). Their Jacobian's 1e-8 tr(J)
+      regularization underflowed to zero and the elimination gave 0/0, NaN
+      velocities at step 12. Nodes whose trace is below DBL_MIN / 1e-8 now
+      count as singular and keep their V_p (an underflow guard, not a
+      physical scale). Test: 3 cold cells moving at 1, 1e-320, 0, red without
+      the guard. The numerical failure policy (`roadmap.md`) was not forced:
+      nothing tangled
+- Cost: the test takes ~2 min 20 s in the default Debug build (11 s
+  optimized, bit-identical), so it dominates the suite
 
 ## After Task 8
-v0.1 is done when Sod, Noh and Saltzman pass at one resolution. The v0.2
-backlog (second-order MUSCL/SP-V reconstruction, paper Sec. 2.3) gets
-written then, not before.
+v0.1 is done: Sod, Noh and Saltzman pass at one resolution. Next is the
+v0.2 backlog (second-order MUSCL/SP-V reconstruction, paper Sec. 2.3), to be
+written as its own atomic breakdown.

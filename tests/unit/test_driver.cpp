@@ -118,8 +118,8 @@ TEST_CASE("parse_deck: a valid deck, with defaults", "[io]") {
   CHECK(d.mesh.x_max == 1.0);
   CHECK(d.mesh.z_max == 0.25);
   CHECK(d.gamma == 1.4);
-  CHECK(d.boundaries[0] == BoundaryType::Symmetry);
-  CHECK(d.boundaries[1] == BoundaryType::Outflow);
+  CHECK(d.boundaries[0].type == BoundaryType::Symmetry);
+  CHECK(d.boundaries[1].type == BoundaryType::Outflow);
   CHECK(d.background.density == 0.125);
   CHECK(d.background.velocity == hydro::io::Vec3{0.0, 0.0, 0.0});
   REQUIRE(d.regions.size() == 1);
@@ -181,6 +181,40 @@ TEST_CASE("parse_deck: rejects bad decks, naming the key", "[io]") {
   j = small_deck();
   j["time"]["max_growth"] = 0.9;
   check_rejected(j, "time.max_growth");
+}
+
+TEST_CASE("parse_deck: piston boundaries and the Saltzman perturbation", "[io]") {
+  json j = small_deck();
+  j["boundaries"]["x_min"] = {{"type", "piston"}, {"velocity", {1.0, 0.0, 0.0}}};
+  j["mesh"]["perturbation"] = "saltzman";
+  const Deck d = parse_deck(j.dump());
+  CHECK(d.boundaries[0].type == BoundaryType::Piston);
+  CHECK(d.boundaries[0].velocity == hydro::io::Vec3{1.0, 0.0, 0.0});
+  CHECK(d.boundaries[1].type == BoundaryType::Outflow);
+  CHECK(d.perturbation == hydro::io::MeshPerturbation::Saltzman);
+  CHECK(parse_deck(small_deck().dump()).perturbation == hydro::io::MeshPerturbation::None);
+
+  // initial_state applies the skew: node (i, j) = (2, 0) of the 4x1 mesh of
+  // [0,1]x[0,0.25] moves by 0.25 sin(pi/2).
+  const HydroState s = hydro::app::initial_state(d);
+  CHECK_THAT(s.mesh.node_x[2], WithinAbs(0.75, 1e-15));
+  CHECK_THAT(s.mesh.node_x[5 + 2], WithinAbs(0.5, 1e-15));
+
+  json bad = j;
+  bad["boundaries"]["x_min"].erase("velocity");
+  check_rejected(bad, "boundaries.x_min.velocity: missing");
+  bad = j;
+  bad["boundaries"]["x_min"]["type"] = "symmetry";
+  check_rejected(bad, "boundaries.x_min.type");
+  bad = j;
+  bad["boundaries"]["x_min"]["speed"] = 1.0;
+  check_rejected(bad, "boundaries.x_min.speed: unknown key");
+  bad = j;
+  bad["boundaries"]["x_max"] = 3;
+  check_rejected(bad, "boundaries.x_max: expected a string or a piston object");
+  bad = j;
+  bad["mesh"]["perturbation"] = "random";
+  check_rejected(bad, "mesh.perturbation");
 }
 
 TEST_CASE("thin_slab_warnings: a thin extrusion warns, cubic cells do not", "[io]") {
@@ -324,4 +358,80 @@ TEST_CASE("hydro_run: planar Noh against the exact solution", "[app][integration
   const double l1 = l1_density_error(dump, oracle, 0.01 * 0.01);
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.021);
+}
+
+TEST_CASE("hydro_run: Saltzman piston against the exact solution", "[app][integration]") {
+  // decks/saltzman.json: cold gas (gamma = 5/3, rho = 1) at rest on Saltzman's
+  // skewed 100x10x1 mesh of [0,1]x[0,0.1]x[0,0.01], pushed by a piston at
+  // u = 1 from x = 0, walls elsewhere, dt^0 = 1e-4, compared with
+  // tests/oracle_data/saltzman.json: piston at x = 0.6, shock at x = 0.8,
+  // rho = 4, u = 1, eps = 1/2 between them. First order on this mesh gives a
+  // shock front tilted along the initial skew and a density overshoot where
+  // it meets the top wall, so the checks are on averages and bounds.
+  // Measured: 1052 steps (2 min in a Debug build, 11 s optimized); shock in
+  // rows 0-9 between x = 0.789 and 0.811; on [0.65, 0.75] rho 3.87-4.22 per
+  // cell, mass-weighted means rho 4.009, u 0.998, eps 0.504; total energy
+  // 7.907e-4 vs the exact piston work 8e-4 (-1.2%, start-up heating at the
+  // piston); gas ahead of x = 0.85 untouched (|u| < 5e-12); L1 density
+  // error 0.0454.
+  const json dump = run_hydro("saltzman");
+  const json oracle = read_oracle("saltzman");
+  REQUIRE(oracle["t"].get<double>() == 0.6);
+  CHECK(dump["t"].get<double>() == 0.6);
+  const auto& cells = dump["cells"];
+  const auto x = cells["centroid_x"].get<std::vector<double>>();
+  const auto mass = cells["mass"].get<std::vector<double>>();
+  const auto rho = cells["density"].get<std::vector<double>>();
+  const auto u = cells["velocity_x"].get<std::vector<double>>();
+  const auto vy = cells["velocity_y"].get<std::vector<double>>();
+  const auto vz = cells["velocity_z"].get<std::vector<double>>();
+  const auto eps = cells["internal_energy"].get<std::vector<double>>();
+  const std::size_t nx = 100, ny = 10;
+  REQUIRE(rho.size() == nx * ny);
+
+  // The piston does work P u A t = (4/3) t (0.1 x 0.01) on gas that starts
+  // with none.
+  double e = 0.0;
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    e += mass[c] * (eps[c] + 0.5 * (u[c] * u[c] + vy[c] * vy[c] + vz[c] * vz[c]));
+  }
+  CHECK_THAT(e, WithinRel(4.0 / 3.0 * 0.6 * 0.1 * 0.01, 0.02));
+
+  double m_sum = 0.0, rho_sum = 0.0, u_sum = 0.0, eps_sum = 0.0;
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    INFO("cell " << c << " at x = " << x[c]);
+    CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+    if (x[c] > 0.65 && x[c] < 0.75) {
+      CHECK_THAT(rho[c], WithinRel(4.0, 0.07));
+      m_sum += mass[c];
+      rho_sum += mass[c] * rho[c];
+      u_sum += mass[c] * u[c];
+      eps_sum += mass[c] * eps[c];
+    }
+    if (x[c] > 0.85) {
+      CHECK_THAT(rho[c], WithinRel(1.0, 1e-5));
+      CHECK_THAT(u[c], WithinAbs(0.0, 1e-10));
+      CHECK_THAT(vy[c], WithinAbs(0.0, 1e-10));
+    }
+  }
+  CHECK_THAT(rho_sum / m_sum, WithinRel(4.0, 0.01));
+  CHECK_THAT(u_sum / m_sum, WithinRel(1.0, 0.01));
+  CHECK_THAT(eps_sum / m_sum, WithinRel(0.5, 0.02));
+
+  // Shock position in each row (cells j*nx + i): the last cell with rho > 2.5
+  // and the next one bracket it, within 2 initial cells of x = 0.8.
+  for (std::size_t j = 0; j < ny; ++j) {
+    std::size_t last = 0;
+    for (std::size_t i = 0; i < nx; ++i) {
+      if (rho[j * nx + i] > 2.5) last = i;
+    }
+    INFO("row " << j);
+    REQUIRE(last + 1 < nx);
+    CHECK(x[j * nx + last] > 0.78);
+    CHECK(x[j * nx + last + 1] < 0.82);
+  }
+
+  const double l1 = l1_density_error(dump, oracle, 0.1 * 0.01);
+  INFO("L1 density error " << l1);
+  CHECK(l1 < 0.05);
 }

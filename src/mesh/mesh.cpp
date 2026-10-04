@@ -1,5 +1,7 @@
 #include "mesh.hpp"
 
+#include <cmath>
+
 namespace hydro::mesh {
 
 namespace {
@@ -163,6 +165,15 @@ std::array<Vec3, kNodesPerFace> face_area_vectors(const Mesh& m, Index f) {
     }
   }
   return result;
+}
+
+void apply_saltzman_skew(Mesh& m, const StructuredMeshSpec& spec) {
+  const double pi = std::acos(-1.0);
+  const double length = spec.x_max - spec.x_min;
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    const double x = m.node_x[p], y = m.node_y[p];
+    m.node_x[p] = x + (spec.y_max - y) * std::sin(pi * (x - spec.x_min) / length);
+  }
 }
 
 }  // namespace hydro::mesh

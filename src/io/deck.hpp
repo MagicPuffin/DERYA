@@ -22,20 +22,25 @@ struct RegionState {
   double pressure = 0.0;
 };
 
-// Axis-aligned box [min, max) of the initial mesh. A cell belongs to the box
-// when its centroid (mean of its nodes) is inside.
+// Axis-aligned box [min, max) of the initial (perturbed) mesh. A cell belongs
+// to the box when its centroid (mean of its nodes) is inside.
 struct Region {
   Vec3 min = {0.0, 0.0, 0.0};
   Vec3 max = {0.0, 0.0, 0.0};
   RegionState state;
 };
 
+// Node perturbation applied to the structured mesh.
+enum class MeshPerturbation { None, Saltzman };
+
 // Input deck of hydro_run (JSON; schema in docs/deck_format.md). Only what
-// Sod, Noh and Saltzman-type setups need: one structured mesh, an ideal gas,
-// one boundary type per side, a background state overridden by boxes in
-// order (the last box containing a cell wins), and time control.
+// Sod, Noh and Saltzman-type setups need: one structured mesh (optionally
+// perturbed), an ideal gas, one boundary per side, a background state
+// overridden by boxes in order (the last box containing a cell wins), and
+// time control.
 struct Deck {
   mesh::StructuredMeshSpec mesh;
+  MeshPerturbation perturbation = MeshPerturbation::None;
   double gamma = 0.0;
   bc::BoundarySet boundaries;
   RegionState background;

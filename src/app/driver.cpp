@@ -30,6 +30,9 @@ bool inside(const io::Region& r, const Vec3& x) {
 
 HydroState initial_state(const io::Deck& deck) {
   mesh::Mesh m = mesh::generate_structured_mesh(deck.mesh);
+  if (deck.perturbation == io::MeshPerturbation::Saltzman) {
+    mesh::apply_saltzman_skew(m, deck.mesh);
+  }
   const auto n = static_cast<std::size_t>(m.num_cells());
   std::vector<double> rho(n), vx(n), vy(n), vz(n), eps(n);
   for (Index c = 0; c < m.num_cells(); ++c) {

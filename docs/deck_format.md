@@ -6,7 +6,8 @@ argument, or `output.path` from the deck. Relative paths are resolved
 against the current directory. Warnings, such as the thin-slab guard, go to
 stderr. A failed run exits with status 1 and reports the step and time
 where it failed. Examples: [decks/sod.json](../decks/sod.json),
-[decks/noh.json](../decks/noh.json).
+[decks/noh.json](../decks/noh.json),
+[decks/saltzman.json](../decks/saltzman.json).
 
 The reader rejects unknown keys, so a misspelled key is an error, not a
 silently ignored setting. The parser is in `src/io/deck.cpp`.
@@ -17,11 +18,12 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 |---|---|---|---|
 | `mesh.cells` | 3 integers ≥ 1 | yes | `nx, ny, nz` |
 | `mesh.min`, `mesh.max` | 3 numbers | yes | Box corners; `max > min` in every direction |
+| `mesh.perturbation` | string | no | Only `"saltzman"`: each node moves in x by `(y_max - y) sin(pi (x - x_min) / (x_max - x_min))` |
 | `eos.type` | string | yes | Only `"ideal_gas"` |
 | `eos.gamma` | number > 1 | yes | |
-| `boundaries.{x,y,z}_{min,max}` | string | yes, all six | `"symmetry"` (wall, `V·n = 0`) or `"outflow"` (prescribed pressure = owner cell pressure) |
+| `boundaries.{x,y,z}_{min,max}` | string or object | yes, all six | `"symmetry"` (wall, `V·n = 0`), `"outflow"` (prescribed pressure = owner cell pressure), or `{"type": "piston", "velocity": [u, v, w]}` (wall moving with that velocity: `V·n = u_w·n`, tangential motion free) |
 | `initial.background` | state | yes | State of every cell not in a region |
-| `initial.regions` | array | no | Each item has `min`, `max` (3 numbers) and the state keys. A cell whose centroid is in `[min, max)` takes the state. Later regions override earlier ones |
+| `initial.regions` | array | no | Each item has `min`, `max` (3 numbers) and the state keys. A cell whose centroid (on the perturbed mesh) is in `[min, max)` takes the state. Later regions override earlier ones |
 | `time.t_end` | number > 0 | yes | The last step is cut so the run ends exactly at `t_end` |
 | `time.dt_initial` | number > 0 | no | `dt^0 = min(dt_initial, CFL)`. Default: CFL alone. A cold gas needs it |
 | `time.cfl`, `time.volume_fraction`, `time.max_growth`, `time.dt_max` | numbers | no | Timestep controller (`decisions.md`, "Lagrangian timestep"). Defaults 0.25, 0.1, 1.01, ∞ |

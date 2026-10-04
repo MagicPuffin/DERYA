@@ -67,9 +67,15 @@ void optional_number(const json& j, const std::string& path, const char* key,
   if (!valid(out)) fail(path + "." + key, requirement);
 }
 
-mesh::StructuredMeshSpec parse_mesh(const json& j) {
+mesh::StructuredMeshSpec parse_mesh(const json& j, MeshPerturbation& perturbation) {
   const std::string path = "mesh";
-  object(j, path, {"cells", "min", "max"});
+  object(j, path, {"cells", "min", "max", "perturbation"});
+  if (j.contains("perturbation")) {
+    if (string(j.at("perturbation"), path + ".perturbation") != "saltzman") {
+      fail(path + ".perturbation", "only \"saltzman\" is supported");
+    }
+    perturbation = MeshPerturbation::Saltzman;
+  }
   const json& cells = required(j, path, "cells");
   if (!cells.is_array() || cells.size() != 3) fail(path + ".cells", "expected an array of 3 integers");
   std::array<long, 3> n;
@@ -115,13 +121,24 @@ bc::BoundarySet parse_boundaries(const json& j) {
   bc::BoundarySet bcs;
   for (int side = 0; side < mesh::kFacesPerCell; ++side) {
     const std::string key_path = path + "." + kSides[side];
-    const std::string type = string(required(j, path, kSides[side]), key_path);
+    const json& b = required(j, path, kSides[side]);
+    if (b.is_object()) {
+      object(b, key_path, {"type", "velocity"});
+      if (string(required(b, key_path, "type"), key_path + ".type") != "piston") {
+        fail(key_path + ".type", "expected \"piston\" (symmetry and outflow are plain strings)");
+      }
+      bcs[side] = bc::Boundary(bc::BoundaryType::Piston,
+                               vec3(required(b, key_path, "velocity"), key_path + ".velocity"));
+      continue;
+    }
+    if (!b.is_string()) fail(key_path, "expected a string or a piston object");
+    const std::string type = b.get<std::string>();
     if (type == "symmetry") {
       bcs[side] = bc::BoundaryType::Symmetry;
     } else if (type == "outflow") {
       bcs[side] = bc::BoundaryType::Outflow;
     } else {
-      fail(key_path, "expected \"symmetry\" or \"outflow\"");
+      fail(key_path, "expected \"symmetry\", \"outflow\" or {\"type\": \"piston\", ...}");
     }
   }
   return bcs;
@@ -202,7 +219,7 @@ Deck parse_deck(const std::string& json_text) {
   }
   object(j, "deck", {"mesh", "eos", "boundaries", "initial", "time", "output"});
   Deck deck;
-  deck.mesh = parse_mesh(required(j, "deck", "mesh"));
+  deck.mesh = parse_mesh(required(j, "deck", "mesh"), deck.perturbation);
   deck.gamma = parse_eos(required(j, "deck", "eos"));
   deck.boundaries = parse_boundaries(required(j, "deck", "boundaries"));
   parse_initial(required(j, "deck", "initial"), deck);

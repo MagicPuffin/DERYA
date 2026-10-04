@@ -14,11 +14,10 @@ Fusion deliverable.
 
 ## Status
 
-**v0.1 in progress** (first-order Lagrangian hydro, no AMR). The EOS, mesh,
-boundary conditions, the first-order Lagrangian step and the timestep
-controller are done and unit-tested. The `hydro_run` driver runs JSON decks;
-Sod and planar Noh through it match their exact solutions. Saltzman, the
-last v0.1 test, is next.
+**v0.1 done** (first-order Lagrangian hydro, no AMR): Sod, planar Noh and
+the Saltzman piston, run through the `hydro_run` driver, match their exact
+solutions at one resolution. Next is v0.2, second-order reconstruction,
+whose backlog is still to be written.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -28,8 +27,9 @@ last v0.1 test, is next.
 - Ideal-gas EOS
 - Structured hexahedral mesh (`nz = 1` is the "2D" thin-slab mode), with
   nodal face-area vectors (paper Eq. 5)
-- Boundary conditions on the nodal solver: symmetry/reflecting walls and
-  outflow
+- Saltzman's skewed mesh as an optional perturbation of the structured mesh
+- Boundary conditions on the nodal solver: symmetry/reflecting walls,
+  outflow, and pistons (walls moving with a prescribed velocity)
 - First-order Lagrangian step (paper Eqs. 1–4): nodal solver, corner forces,
   cell and node updates. It conserves mass, energy and volume to round-off
   in a closed box, and Sod on a 100×2×2 slab matches the exact solution
@@ -43,7 +43,8 @@ last v0.1 test, is next.
 - `hydro_run <deck.json> [dump.json]`: runs a JSON deck (mesh, ideal gas,
   boundaries, initial regions, time control) and writes the final state as
   JSON. `decks/sod.json` gives L1 density error 0.0195 against the exact
-  solution in 211 steps, `decks/noh.json` 0.0194 in 856 steps. `scripts/plot_comparison.py` plots a dump against
+  solution in 211 steps, `decks/noh.json` 0.0194 in 856 steps, and
+  `decks/saltzman.json` 0.0454 in 1052 steps. `scripts/plot_comparison.py` plots a dump against
   the exact solution. Formats: [docs/deck_format.md](docs/deck_format.md)
 
 ## Out of scope for v1.0
@@ -69,7 +70,12 @@ To run Sod and plot it (the plot needs the Python environment below):
 python3 scripts/plot_comparison.py sod_final.json -o sod.png
 ```
 
-For Noh, use `decks/noh.json` and add `--oracle tests/oracle_data/noh.json`.
+For Noh or Saltzman, use `decks/<case>.json` and add
+`--oracle tests/oracle_data/<case>.json`.
+
+The default build is Debug, where the test suite takes about 2.5 minutes,
+almost all of it the Saltzman test. An optimized build
+(`-DCMAKE_BUILD_TYPE=Release`) runs it about 12 times faster.
 
 Oracle data (exact solutions from ExactPack) is committed under
 `tests/oracle_data/`. To regenerate it:

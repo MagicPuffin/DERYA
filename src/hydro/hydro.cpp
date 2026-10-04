@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -44,6 +45,14 @@ constexpr double kNewtonTolerance = 1e-13;
 // singular (cold cells moving alike): the step then has no component along
 // the null space, so V_p keeps its initial value there.
 constexpr double kNewtonRegularization = 1e-8;
+// Smallest Jacobian trace for which that regularization is a normal double.
+// Below it the Jacobian is treated as singular and V_p keeps its value: on a
+// skewed mesh, cold gas ahead of a shock carries velocity precursors that
+// decay to subnormal values (1e-315 and below), where the regularization
+// underflows to zero and the elimination divides 0 by 0. An underflow guard,
+// not a physical scale.
+constexpr double kMinJacobianTrace =
+    std::numeric_limits<double>::min() / kNewtonRegularization;
 
 // rho_c (a_c + k Gamma_c |s_cfp|), s_cfp = (V_p - V_c) . n_pf: the impedance
 // Z_cfp for k = 1, and the Newton Jacobian's d(Z_cfp s_cfp)/ds_cfp for k = 2.
@@ -257,9 +266,12 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
   // the gradient of the convex rho (a s^2/2 + Gamma |s|^3/3) - P s, and the
   // Jacobian is J_p = sum S_pf rho_c (a_c + 2 Gamma_c |s_cfp|) (n_pf x n_pf).
   const mesh::Mesh& m = s.mesh;
-  const auto walls = bc::wall_normals(m, bcs);
+  const auto constraints = bc::wall_constraints(m, bcs);
+  const auto& walls = constraints.normals;
 
-  // Initial guess: the mean velocity of the cells at each node, on its walls.
+  // Initial guess: the mean velocity of the cells at each node, moved onto its
+  // walls (normal part as prescribed). The Newton steps are tangent to the
+  // walls, so every iterate satisfies them.
   std::vector<Vec3> V(m.num_nodes(), Vec3{});
   std::vector<int> count(m.num_nodes(), 0);
   for (Index c = 0; c < m.num_cells(); ++c) {
@@ -273,6 +285,7 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
   for (Index p = 0; p < m.num_nodes(); ++p) {
     for (int d = 0; d < 3; ++d) V[p][d] /= count[p];
     V[p] = tangential(V[p], walls[p]);
+    for (int d = 0; d < 3; ++d) V[p][d] += constraints.velocity[p][d];
   }
 
   double speed = 0.0;
@@ -303,7 +316,7 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
     for (Index p = 0; p < m.num_nodes(); ++p) {
       Mat3 A = J[p];
       const double trace = A[0][0] + A[1][1] + A[2][2];
-      if (!(trace > 0.0)) continue;
+      if (!(trace >= kMinJacobianTrace)) continue;
       for (int d = 0; d < 3; ++d) A[d][d] += kNewtonRegularization * trace;
       const Vec3 step = bc::solve_nodal_velocity(A, R[p], walls[p]);
       for (int d = 0; d < 3; ++d) V[p][d] -= step[d];

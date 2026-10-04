@@ -97,6 +97,15 @@ struct StructuredMeshSpec {
 //   - an interior face is owned by the lower-indexed of its two cells.
 Mesh generate_structured_mesh(const StructuredMeshSpec& spec);
 
+// Saltzman's skewed mesh (Dukowicz & Meltz 1992; the setup of Maire et al.,
+// 2007): each node of a structured mesh moves in x by
+//   (y_max - y) sin(pi (x - x_min) / (x_max - x_min)),
+// with (x, y) its unperturbed position. On the standard 100x10 mesh of
+// [0,1]x[0,0.1] this is x_ij = i dx + (10 - j) dy sin(pi i dx). The domain
+// boundary is unchanged (x_min, x_max nodes stay put, the y sides stay
+// planar) and every face stays planar, since z does not enter.
+void apply_saltzman_skew(Mesh& m, const StructuredMeshSpec& spec);
+
 // Nodal face area vectors S_pf n_pf of face f (Colaïtis, Guisset & Breil,
 // SSRN 5167115, Eq. 5, after Georges, Breil & Maire [29]). The face is split
 // into triangles tr = (p*_f, p, p+) around its barycenter p*_f, and node p gets

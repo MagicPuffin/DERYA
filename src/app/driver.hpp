@@ -7,9 +7,10 @@
 
 namespace hydro::app {
 
-// State on the deck's structured mesh: each cell takes the background state,
-// overridden by every region whose box [min, max) contains its centroid (the
-// last such region wins). eps = P / ((gamma - 1) rho).
+// State on the deck's structured mesh, perturbed if the deck asks for it:
+// each cell takes the background state, overridden by every region whose box
+// [min, max) contains its centroid (the last such region wins).
+// eps = P / ((gamma - 1) rho).
 lagrangian::HydroState initial_state(const io::Deck& deck);
 
 struct RunResult {

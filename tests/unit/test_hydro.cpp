@@ -17,6 +17,7 @@
 
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
+using hydro::bc::Boundary;
 using hydro::bc::BoundarySet;
 using hydro::bc::BoundaryType;
 using hydro::eos::IdealGasEOS;
@@ -314,6 +315,65 @@ TEST_CASE("nodal_velocities: colliding cold slabs give the two-shock velocity",
     const double x = s.mesh.node_x[p];
     const double expected = x < 2.0 ? 1.0 : (x > 2.0 ? 0.0 : 2.0 / 3.0);
     check_vec(V[p], {expected, 0.0, 0.0}, 1e-12);
+  }
+}
+
+TEST_CASE("lagrangian_step: a piston into a cold gas pushes with the shock pressure",
+          "[hydro]") {
+  // 2x1x1 unit cubes of cold gas at rest (rho = 1, gamma = 5/3), piston on -x
+  // moving with (1, 0.5, 0), symmetry elsewhere. Every piston node is also on
+  // the y and z walls, so V_p = (1, 0, 0) there. The interior nodes see only
+  // cold gas at rest, so they stay at rest. On the piston face s = (V_p -
+  // V_c) . n = -1 and Eq. 3 gives P = rho Gamma s^2 = 4/3, the exact
+  // post-shock pressure of the piston problem; the other faces at those
+  // nodes have s = 0. So cell 0 gains u = (4/3) dt (unit mass and face area)
+  // and the energy the piston does as work, (4/3) dt.
+  const IdealGasEOS eos(5.0 / 3.0);
+  StructuredMeshSpec spec;
+  spec.nx = 2;
+  spec.x_max = 2.0;
+  HydroState s = uniform_state(generate_structured_mesh(spec), 1.0, {0.0, 0.0, 0.0}, 0.0);
+  const BoundarySet bcs = {Boundary(BoundaryType::Piston, {1.0, 0.5, 0.0}),
+                           kSym, kSym, kSym, kSym, kSym};
+  const double dt = 0.01;
+  const auto V = lagrangian_step(s, bcs, eos, dt);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    // node_x has moved by dt V_p.
+    const bool on_piston = s.mesh.node_x[p] < 0.5;
+    check_vec(V[p], {on_piston ? 1.0 : 0.0, 0.0, 0.0});
+  }
+  CHECK_THAT(s.vel_x[0], WithinAbs(4.0 / 3.0 * dt, 1e-14));
+  CHECK_THAT(s.vel_y[0], WithinAbs(0.0, 1e-14));
+  CHECK_THAT(s.vel_x[1], WithinAbs(0.0, 1e-14));
+  CHECK_THAT(total_energy(s), WithinAbs(4.0 / 3.0 * dt, 1e-14));
+}
+
+TEST_CASE("nodal_velocities: subnormal velocity jumps stay finite", "[hydro]") {
+  // Cold gas ahead of a shock on a skewed mesh carries velocity precursors
+  // that decay to subnormal values (Saltzman: 1e-315 and below). The
+  // Jacobian at such a node is subnormal too, and once 1e-8 tr(J) is below
+  // the smallest subnormal the regularization underflows to zero and the
+  // elimination gives 0/0. 3x1x1 cold cells with
+  // densities 4, 1, 1 moving at 1, 1e-320 and 0, all sides outflow (no
+  // walls, so the full 3x3 system). The real jump between cells 0 and 1
+  // (whose solution, 2/3, is not the initial guess 1/2) keeps Newton
+  // iterating, so it also steps at the subnormal nodes at x = 2.
+  const IdealGasEOS eos(5.0 / 3.0);
+  StructuredMeshSpec spec;
+  spec.nx = 3;
+  spec.x_max = 3.0;
+  const HydroState s =
+      make_state(generate_structured_mesh(spec), {4.0, 1.0, 1.0}, {1.0, 1e-320, 0.0},
+                 {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0});
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const BoundarySet all_out = {kOut, kOut, kOut, kOut, kOut, kOut};
+  const auto V = nodal_velocities(s, faces, t, all_out);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p << " at x = " << s.mesh.node_x[p]);
+    for (int d = 0; d < 3; ++d) CHECK(std::isfinite(V[p][d]));
+    if (s.mesh.node_x[p] > 1.5) check_vec(V[p], {0.0, 0.0, 0.0}, 1e-300);
   }
 }
 
