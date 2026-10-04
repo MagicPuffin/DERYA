@@ -31,8 +31,11 @@ drive coupling, burn physics, any formal documentation/review process.
 | v1.0 | + science demo, restart, report generation | DoD fully met |
 
 ## Known design gaps (not yet built, tracked so they aren't forgotten)
-- **Second-order rollout** — not scheduled in detail yet; needs its own
-  atomic breakdown same as Sec. 2, lands at v0.2.
+- **Second-order rollout** — broken down as Tasks 9-15 in `backlog.md`.
+  Open: the paper defers its time integration and reconstruction details
+  to Georges' thesis [30] (Task 9 decides them), and the v0.2 gate needs
+  rewording, since rates on shocked problems are <= 1 for any scheme
+  (proposal in Task 9).
 - **Debug/probe tooling** — a `--probe cell_id` flag to dump full state for
   one cell/node across timesteps. Cheap, not yet added; the reference paper's
   own authors needed exactly this to catch their triple-point oscillation bug.

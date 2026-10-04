@@ -1,8 +1,12 @@
-# v0.1 Backlog
+# Backlog
 
-v0.1 acceptance bar (from `roadmap.md`): Sod, Noh, Saltzman pass at 1
-resolution, no AMR, no p4est. Update the checkboxes below as tasks land —
-this file is the source of truth for "what's next," not the chat history.
+This file is the source of truth for "what's next," not the chat history.
+Update the checkboxes as tasks land.
+
+- **v0.1** (Tasks 0-8, done): first-order Lagrangian hydro. Acceptance bar
+  (from `roadmap.md`): Sod, Noh, Saltzman pass at 1 resolution, no AMR, no
+  p4est.
+- **v0.2** (Tasks 9-15, below): second-order extension, paper Sec. 2.3.
 
 ## Task 0 — Repo & toolchain bootstrap — ✅ DONE
 - [x] CMake skeleton, Catch2 v3.7.1 + nlohmann::json v3.11.3 via FetchContent
@@ -229,7 +233,122 @@ Files: `src/bc/bc.{hpp,cpp}`, `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`
 - Cost: the test takes ~2 min 20 s in the default Debug build (11 s
   optimized, bit-identical), so it dominates the suite
 
-## After Task 8
-v0.1 is done: Sod, Noh and Saltzman pass at one resolution. Next is the
-v0.2 backlog (second-order MUSCL/SP-V reconstruction, paper Sec. 2.3), to be
-written as its own atomic breakdown.
+# v0.2 — second-order extension (paper Sec. 2.3)
+
+The paper gives the gradients (Eq. 6), the SP-V limiter (Eq. 7) and
+Barth-Jespersen (Eq. 8), and defers the rest to ref. [30] (Georges' PhD
+thesis, Bordeaux 2016, in French, not in `docs/`). Task 9 settles what the
+paper leaves open before any code depends on it, as Task 4b did for the
+impedance. Every task keeps the first-order path working and selectable:
+`order = 1` must reproduce today's results exactly, which is the regression
+check for every v0.2 task.
+
+## Task 9 — Decide the unspecified parts of the second-order scheme
+Files: `docs/decisions.md`, `docs/backlog.md` (Tasks 10-15 adjusted to the
+outcome), `docs/roadmap.md` (gate wording, if agreed). No code.
+- [ ] Try to get ref. [30] (theses.fr / HAL may have it open access) and
+      Georges, Breil & Maire [29]; read their second-order sections. What
+      can't be found gets decided here and marked "our choice"
+- [ ] Time integration. The paper does not say. Candidates: the EUCCLHYD
+      predictor-corrector (predict geometry and state to t^{n+1/2}, solve
+      there, then a full step with those fluxes) or two-stage RK2 (Heun).
+      Either needs two nodal solves per step, so roughly twice the cost
+- [ ] Where Eq. 6's nodal values come from. (grad P)_c uses P_cfp and
+      (grad V)_c uses V_p, which are outputs of a nodal solve: a first-order
+      solve at the start of each step (or stage), or lagged values from the
+      previous step
+- [ ] How the reconstruction enters the solver: P_c and V_c in Eqs. 3-4
+      and in the corner forces replaced, per corner, by
+      P_c + (grad P)_c . (x_p - x_c) and V_c + (grad V)_c (x_p - x_c) ("the
+      reconstruction is evaluated at the nodes of the cell"). Is rho_c a_c
+      in the two-shock Z still the cell value? (Expected: yes)
+- [ ] x_c: volume centroid or node average (the dump uses the node
+      average; a linear field is reproduced exactly only with the right one)
+- [ ] Limiter edge cases: Eq. 7's velocity limiter divides by |V_c| (a gas
+      at rest, or the Noh wall); stencil C(P(c)) at domain boundaries
+- [ ] Timestep: is the current controller (`decisions.md`) still right, or
+      does the second-order step need a smaller C_cfl?
+- [ ] **v0.2 gate wording** (needs Luca's agreement). The roadmap says "same
+      tests, 3 resolutions, correct convergence order", but on solutions
+      with shocks every scheme converges at order <= 1; second order shows
+      as a smaller error constant there, not a higher rate. Proposed gate:
+      Sod/Noh/Saltzman at 3 resolutions with second-order errors below
+      first-order ones and the observed rates documented, plus order ~2 on
+      one smooth problem (Task 14)
+- [ ] Smooth test problem for Task 14. Candidates: a 1D isentropic simple
+      wave before it steepens (exact solution by characteristics, oracle
+      from a short script), or Kidder's isentropic compression (smooth and
+      exact, but brought forward from v0.3)
+
+## Task 10 — Unlimited cell gradients (Eq. 6)
+Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
+`tests/unit/test_gradients.cpp`, the test CMakeLists.
+- [ ] Cell centre x_c as decided in Task 9
+- [ ] `cell_gradients()`: (grad P)_c = 1/V_c sum_p sum_f S_pf P_cfp n_pf
+      and (grad V)_c = 1/V_c sum_p sum_f S_pf V_p (x) n_pf (a 3x3 tensor),
+      from given nodal values
+- [ ] Tests: a constant field gives zero gradient (closure); a linear field
+      sampled at the nodes gives its exact gradient on the distorted test
+      mesh (by the GCL); hand-computed values on a single box cell
+
+## Task 11 — Barth-Jespersen and the SP-V limiter (Eqs. 7-8)
+Files: `src/hydro/` (limiter), `tests/unit/test_limiter.cpp`.
+- [ ] `barth_jespersen(controls, extrapolated, reference)` (Eq. 8)
+- [ ] chi_c(P): controls = P of the cells sharing a node with c (C(P(c))),
+      extrapolated values at c's own nodes (the SP-V difference from [30])
+- [ ] chi_c(V): the same on velocities projected onto V_c / |V_c|, with the
+      |V_c| = 0 rule from Task 9
+- [ ] Tests: Eq. 8 by hand (above, below, inside the bounds); a linear
+      field away from boundaries gives chi = 1; a cell at a local extremum
+      gives chi = 0; on a slab with a 1D field every cell of a column gets
+      the same chi (1D symmetry, the property the paper wants)
+
+## Task 12 — Second-order nodal solve and corner forces
+Files: `src/hydro/hydro.{hpp,cpp}`, `tests/unit/test_hydro.cpp`.
+- [ ] Reconstructed corner values (Task 9) used in the assembly of Eq. 4,
+      in the two-shock Newton solve and in the corner forces (Eq. 3)
+- [ ] Tests: zero gradients reproduce the first-order V_p and forces
+      exactly; a uniform flow still gives V_p = V_c; momentum and total
+      energy are still conserved in a closed box (conservation does not
+      depend on the reconstruction)
+
+## Task 13 — Second-order time step and the scheme option
+Files: `src/hydro/`, `src/io/deck.{hpp,cpp}`, `src/app/driver.cpp`,
+`docs/deck_format.md`, tests.
+- [ ] The time integration from Task 9, as `lagrangian_step_2()` (or an
+      order argument), with gradients, limiting and the reconstructed solve
+      in each stage
+- [ ] Deck keys `scheme.order` (1 or 2, default 1 until v0.2 is accepted)
+      and `scheme.limiter` (`"sp-v"` or `"none"`, the latter for smooth
+      convergence tests)
+- [ ] Tests: `order = 1` decks give results identical to today's;
+      `order = 2` conserves mass, momentum and energy to round-off in a
+      closed box; Sod at `order = 2` stays exactly 1D on the slab
+
+## Task 14 — Smooth convergence test
+Files: `scripts/gen_oracle_data.py`, new oracle and decks, tests.
+- [ ] Oracle for the smooth problem chosen in Task 9
+- [ ] Order ~1 at `order = 1` and ~2 at `order = 2` over 3+ resolutions
+      (L1, unlimited and with SP-V; the limiter may cost some order at
+      smooth extrema, which is expected and gets documented)
+- [ ] Runs as a ctest; the resolutions are kept small enough for the
+      optimized build
+
+## Task 15 — v0.2 acceptance: Sod, Noh, Saltzman at 3 resolutions
+Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.
+- [ ] Decks at 3 resolutions per problem (e.g. 50/100/200 cells along the
+      flow), both orders
+- [ ] `scripts/convergence.py`: runs a deck family, tabulates L1 errors and
+      observed rates, plots error vs resolution. The first piece of
+      `make_report.py` (roadmap DoD item 6)
+- [ ] Acceptance per the gate agreed in Task 9: second-order errors below
+      first-order ones at every resolution, rates documented in
+      `vv_catalog.md`. Saltzman at second order is where a limiter problem
+      would show (the paper's own triple-point bug); if it tangles, the
+      numerical failure policy (`roadmap.md`) gets decided then
+- [ ] Optional, cheap, recommended before this task: the `--probe cell_id`
+      debug flag from `roadmap.md`'s design gaps
+
+## After Task 15
+v0.2 is done when the gate agreed in Task 9 is met. The v0.3 backlog
+(Sedov, Kidder, Guderley, LeBlanc) gets written then.
