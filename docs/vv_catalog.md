@@ -8,7 +8,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 ## Already in the reference paper's suite (parity checkpoint)
 | Test | Stresses | Status |
 |---|---|---|
-| Sod | shock/contact/rarefaction | oracle done (`sod.json`), solver pending |
+| Sod | shock/contact/rarefaction | passes at 1 resolution via `hydro_run` (L1 density 0.0195, 100×2×2) |
 | Noh | wall-heating, stagnation shock | not started |
 | Woodward-Colella blast wave | shock-shock interaction | Tier A/AMR-adjacent, defer |
 | Sedov | spherical/cylindrical symmetry | not started |

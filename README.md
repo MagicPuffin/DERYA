@@ -16,8 +16,8 @@ Fusion deliverable.
 
 **v0.1 in progress** (first-order Lagrangian hydro, no AMR). The EOS, mesh,
 boundary conditions, the first-order Lagrangian step and the timestep
-controller are done and unit-tested. There is no `hydro_run` driver yet,
-so nothing runs outside the test suite.
+controller are done and unit-tested. The `hydro_run` driver runs JSON decks;
+Sod through it matches the exact solution. Noh and Saltzman decks are next.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -39,6 +39,11 @@ so nothing runs outside the test suite.
   [docs/decisions.md](docs/decisions.md))
 - Timestep controller: acoustic CFL, relative volume change (which bounds
   dt in a cold gas), growth limit and `dt_max`
+- `hydro_run <deck.json> [dump.json]`: runs a JSON deck (mesh, ideal gas,
+  boundaries, initial regions, time control) and writes the final state as
+  JSON. `decks/sod.json` gives L1 density error 0.0195 against the exact
+  solution in 211 steps. `scripts/plot_comparison.py` plots a dump against
+  the exact solution. Formats: [docs/deck_format.md](docs/deck_format.md)
 
 ## Out of scope for v1.0
 
@@ -54,6 +59,13 @@ Catch2 and nlohmann::json from GitHub.
 cmake -S . -B build
 cmake --build build -j4
 ctest --test-dir build --output-on-failure
+```
+
+To run Sod and plot it (the plot needs the Python environment below):
+
+```
+./build/src/app/hydro_run decks/sod.json sod_final.json
+python3 scripts/plot_comparison.py sod_final.json -o sod.png
 ```
 
 Oracle data (exact solutions from ExactPack) is committed under
@@ -72,10 +84,11 @@ known setup problems.
 
 | Path | Contents |
 |---|---|
-| `src/<module>/` | One CMake target per module: `eos`, `mesh`, `bc`, `hydro` (built); `timestep`, `app`, `io`, `fields`, `sync` (placeholders) |
+| `src/<module>/` | One CMake target per module: `eos`, `mesh`, `bc`, `hydro`, `timestep`, `sync` (stub), `io`, `app` (`hydro_run`); `fields` (placeholder) |
+| `decks/` | Example input decks |
 | `tests/unit/` | Catch2 unit and integration tests |
 | `tests/oracle_data/` | Exact-solution reference data (JSON) |
-| `scripts/` | Oracle data generation |
+| `scripts/` | Oracle data generation, dump plotting |
 | `docs/` | Project documentation, see below |
 
 ## Documentation
@@ -86,6 +99,7 @@ known setup problems.
 | [backlog.md](docs/backlog.md) | You're picking up the next task |
 | [task_workflow.md](docs/task_workflow.md) | Before starting any task: sizing, stop condition, review checklist |
 | [decisions.md](docs/decisions.md) | Before changing architecture: locked technical decisions |
+| [deck_format.md](docs/deck_format.md) | You're writing a deck or reading a dump |
 | [vv_catalog.md](docs/vv_catalog.md) | You're adding or checking a verification test |
 | [SETUP.md](docs/SETUP.md) | Your build or oracle setup fails |
 | [NOTES.md](docs/NOTES.md) | You want the dev log |

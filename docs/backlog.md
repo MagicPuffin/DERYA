@@ -130,22 +130,36 @@ Criteria in `decisions.md` ("Lagrangian timestep").
   CFL limit of the compressed post-shock cells), L1 0.0194 vs 0.0188 with
   the fixed dt = 5e-4
 
-## Task 6 — Driver & first real run (`src/app/`, minimal `src/io/`)
-- [ ] Minimal JSON deck schema for Sod
-- [ ] `hydro_run <deck.json>` wiring Tasks 1-5 into a time-stepping loop
-- [ ] Minimal checkpoint output (CSV/JSON dump, full schema deferred)
-- [ ] **First integration milestone:** Sod via `hydro_run`, checked against
-      `tests/oracle_data/sod.json`
-- [ ] Thin-slab guard: when reading a deck, warn if a single-cell extruded
-      direction (thin-slab mode) is thinner than the in-plane cell size,
-      since `lambda_c` would then limit dt for no physical reason (Task 5,
-      `decisions.md`, "Lagrangian timestep"). Test: a deck with a thin
-      extrusion produces the warning, a cubic-cell one does not
-- [ ] `scripts/plot_comparison.py`: numerical vs exact profiles (rho, u, P,
-      eps) from a `hydro_run` dump and the oracle data, as PNG. Run on
-      demand, not from `ctest`. A throwaway version made for Task 4b
-      (Noh, Sod at 100 cells) showed the expected wall heating and
-      first-order smearing of the rarefaction and shock
+## Task 6 — Driver & first real run (`src/app/`, minimal `src/io/`) — ✅ DONE
+Files: new `src/io/` (`deck`, `dump`), new `src/app/` (`driver`, `main.cpp`
+→ `hydro_run`), `src/CMakeLists.txt`, `tests/unit/CMakeLists.txt`, new
+`tests/unit/test_driver.cpp`, new `decks/sod.json`, new
+`scripts/plot_comparison.py`, new `docs/deck_format.md`.
+- [x] Minimal JSON deck schema for Sod (`docs/deck_format.md`): structured
+      mesh, ideal gas, one BC per side, background state plus boxes
+      (density, velocity, pressure), time control, output. Unknown keys are
+      errors, naming the key. Tests: valid deck and defaults, 12 rejections
+- [x] `hydro_run <deck.json> [dump.json]`: `app::initial_state()` +
+      `app::run()` (stable_dt → lagrangian_step, last step cut to land on
+      t_end, `max_steps` cap, failures rethrown with step and time). Tests:
+      region assignment, exact t_end, max_steps, a failing first step
+- [x] Minimal dump (`io::write_dump`, JSON "hydro-dump-0"): per-cell
+      centroid, volume, mass, rho, V, P, eps, plus node coordinates. Not a
+      restart file (no connectivity or BCs)
+- [x] **First integration milestone:** the test runs the `hydro_run`
+      executable on `decks/sod.json` (100x2x2) and compares the dump with
+      `sod.json`: 211 steps, L1 density error 0.0195 (bound 0.021; 0.0202
+      with the fixed dt of the `lagrangian_step` test), flow exactly 1D.
+      ~11 s in the Debug build
+- [x] Thin-slab guard: `io::thin_slab_warnings()`, run by `parse_deck`,
+      printed by `hydro_run` to stderr. Test: a 0.005-thick z extrusion
+      with dx = 0.01 warns; cubic cells, the 100x2x2 slab and an all-1 mesh
+      do not
+- [x] `scripts/plot_comparison.py DUMP [--oracle] [--gamma] [-o]`: rho, u,
+      P, eps vs x, cells as points, oracle as a line. On Sod it shows the
+      expected first-order smearing and the eps overshoot at the contact
+- Failure policy (roadmap gap) is unchanged: a failed step stops the run
+  with exit status 1 and no dump
 
 ## After Task 6
 Extend the same pattern to Noh and Saltzman (v0.1's actual acceptance bar).

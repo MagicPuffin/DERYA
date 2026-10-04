@@ -1,0 +1,21 @@
+{
+  "mesh": {
+    "cells": [100, 2, 2],
+    "min": [0.0, 0.0, 0.0],
+    "max": [1.0, 0.02, 0.02]
+  },
+  "eos": {"type": "ideal_gas", "gamma": 1.4},
+  "boundaries": {
+    "x_min": "outflow", "x_max": "outflow",
+    "y_min": "symmetry", "y_max": "symmetry",
+    "z_min": "symmetry", "z_max": "symmetry"
+  },
+  "initial": {
+    "background": {"density": 0.125, "pressure": 0.1},
+    "regions": [
+      {"min": [0.0, 0.0, 0.0], "max": [0.5, 0.02, 0.02], "density": 1.0, "pressure": 1.0}
+    ]
+  },
+  "time": {"t_end": 0.2},
+  "output": {"path": "sod_final.json"}
+}

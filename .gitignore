@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .venv/
 compile_commands.json
+sod_final.json
