@@ -83,6 +83,15 @@ stop and report rather than deciding to override it.
   more than needed; slab tests keep the extrusion at least one cell wide.
   Decided at the start of Task 5.
 
+- **Build trees:** `build/` is optimized with debug symbols
+  (`RelWithDebInfo`, the default build type and the `default` preset) and is
+  where tests run; `build-debug/` (`Debug`, the `debug` preset) is only for
+  stepping through code. The integration tests are ~12x slower unoptimized
+  (Saltzman: 2.5 min vs 11 s). Results are bit-identical between the two,
+  since neither uses `-ffast-math` or FMA contraction (no `-march`); keep it
+  that way, or expect last-bit differences the test tolerances must absorb.
+  Decided after Task 8.
+
 ## Testing
 - **Tier 1 — unit tests (Catch2):** one function/equation at a time, test
   written before or alongside implementation, never after.

@@ -6,9 +6,9 @@ Verified working sequence (Ubuntu 24.04, GCC 13.3.0, CMake 3.28.3, Python 3.12).
 
 ```
 apt-get install cmake   # 3.20+ required; project uses FetchContent
-cmake -S . -B build
-cmake --build build -j4
-ctest --test-dir build --output-on-failure
+cmake --preset default        # or: cmake -S . -B build (same default build type)
+cmake --build --preset default
+ctest --preset default
 ```
 
 First configure fetches Catch2 (v3.7.1) and nlohmann::json (v3.11.3) from

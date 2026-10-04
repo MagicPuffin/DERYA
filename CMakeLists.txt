@@ -8,8 +8,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_MPI "Build p4est/libsc against real MPI (OFF = single-rank stub build)" OFF)
 option(BUILD_TESTS "Build the Catch2 unit test suite" ON)
 
+# Optimized with debug symbols by default: the integration tests are ~12x
+# slower unoptimized. Debug builds go in their own tree (the "debug" preset,
+# build-debug/); see docs/decisions.md, "Build trees".
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Debug)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
 include(FetchContent)

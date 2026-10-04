@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Optimized with debug symbols (everyday use, tests)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo"}
+    },
+    {
+      "name": "debug",
+      "displayName": "Unoptimized, for stepping through in a debugger",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "default", "configurePreset": "default", "jobs": 8},
+    {"name": "debug", "configurePreset": "debug", "jobs": 8}
+  ],
+  "testPresets": [
+    {"name": "default", "configurePreset": "default",
+     "output": {"outputOnFailure": true}, "execution": {"jobs": 8}},
+    {"name": "debug", "configurePreset": "debug",
+     "output": {"outputOnFailure": true}, "execution": {"jobs": 8}}
+  ]
+}

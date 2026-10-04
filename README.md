@@ -58,10 +58,15 @@ Requires CMake ≥ 3.20 and a C++17 compiler. The first configure fetches
 Catch2 and nlohmann::json from GitHub.
 
 ```
-cmake -S . -B build
-cmake --build build -j4
-ctest --test-dir build --output-on-failure
+cmake --preset default        # build/: optimized, with debug symbols
+cmake --build --preset default
+ctest --preset default
 ```
+
+For stepping through code in a debugger, use the separate unoptimized tree
+`build-debug/`: the same three commands with `debug` in place of `default`.
+It is about 12 times slower, so the suite takes about 2.5 minutes there
+(almost all of it the Saltzman test) instead of about 15 seconds.
 
 To run Sod and plot it (the plot needs the Python environment below):
 
@@ -72,10 +77,6 @@ python3 scripts/plot_comparison.py sod_final.json -o sod.png
 
 For Noh or Saltzman, use `decks/<case>.json` and add
 `--oracle tests/oracle_data/<case>.json`.
-
-The default build is Debug, where the test suite takes about 2.5 minutes,
-almost all of it the Saltzman test. An optimized build
-(`-DCMAKE_BUILD_TYPE=Release`) runs it about 12 times faster.
 
 Oracle data (exact solutions from ExactPack) is committed under
 `tests/oracle_data/`. To regenerate it:
