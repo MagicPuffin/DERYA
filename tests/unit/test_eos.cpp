@@ -21,3 +21,11 @@ TEST_CASE("IdealGasEOS matches hand-computed pressure and sound speed", "[eos]")
   const double a_expected = std::sqrt(1.4);
   CHECK_THAT(eos.sound_speed(rho, eps), WithinRel(a_expected, 1e-14));
 }
+
+TEST_CASE("IdealGasEOS shock coefficient is (gamma + 1) / 2", "[eos]") {
+  // Strong-shock limit of the Hugoniot: D - u = Gamma |du| with
+  // Gamma = (gamma + 1) / 2, independent of the state.
+  const IdealGasEOS eos(1.4);
+  CHECK_THAT(eos.shock_coefficient(1.0, 2.5), WithinRel(1.2, 1e-15));
+  CHECK_THAT(eos.shock_coefficient(3.0, 0.0), WithinRel(1.2, 1e-15));
+}

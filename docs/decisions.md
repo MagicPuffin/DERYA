@@ -39,6 +39,30 @@ stop and report rather than deciding to override it.
   `M_p`/`B` are assembled over all faces including boundary faces. `bc`
   depends on `mesh` only. Decided at the start of Task 3, replacing the
   backlog's placeholder `apply(mesh, fields)` interface.
+- **Two-shock (Dukowicz) impedance in the nodal solver**, not the paper's
+  acoustic `Z_c = rho_c a_c`: `Z_cfp = rho_c (a_c + Gamma_c |(V_p - V_c) . n_pf|)`
+  per cell, face and node, with `Gamma = (gamma+1)/2` for an ideal gas (from
+  `EOS::shock_coefficient`). The acoustic Z vanishes in a cold gas (Noh,
+  Saltzman) and makes `M_p` singular. A floor `Z >= rho a_min` was rejected:
+  it has units, and since Z is the scheme's only dissipation, a small floor
+  under-heats strong shocks while a large one turns into a tuned artificial
+  viscosity. The two-shock Z tends to the Rankine-Hugoniot shock impedance
+  `rho D` for strong shocks and needs no parameters. Conservation and
+  entropy production hold for any `Z >= 0`.
+  Since `Z_cfp` depends only on its own node's `V_p`, Eq. 4 becomes a
+  per-node nonlinear system `sum S [rho (a + Gamma|s|) s - P] n = 0`
+  (`s = (V_p - V_c) . n`), the gradient of a convex function. It is solved by
+  Newton's method, Jacobian `sum S rho (a + 2 Gamma|s|) n x n`, starting from
+  the mean of the surrounding cell velocities. Plain fixed-point iteration
+  on Z was rejected: in the cold limit its slope at the solution is
+  `-(1+r)^2/4` for a density ratio `r^2`, so it does not converge. Where every
+  surrounding cell is cold and has the same velocity, `M_p` is singular. The
+  forces there do not depend on `V_p`, and the Newton step uses a
+  `1e-8 tr(J)` regularization, so V_p keeps its initial value. The corner
+  forces use Z evaluated at the converged `V_p`; conservation is then exact
+  up to the Newton residual. A cold, moving gas also needs
+  `eps = E - |V|^2/2` clamped to 0 when it is negative by round-off (it
+  throws beyond 1e-13 of the kinetic energy). Decided before Task 5 (Task 4b).
 
 ## Testing
 - **Tier 1 — unit tests (Catch2):** one function/equation at a time, test

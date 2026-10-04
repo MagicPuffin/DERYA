@@ -28,6 +28,7 @@ using hydro::lagrangian::cell_face_vectors;
 using hydro::lagrangian::cell_thermo;
 using hydro::lagrangian::cell_volume;
 using hydro::lagrangian::corner_forces;
+using hydro::lagrangian::corner_impedances;
 using hydro::lagrangian::corner_vectors;
 using hydro::lagrangian::lagrangian_step;
 using hydro::lagrangian::make_state;
@@ -192,7 +193,8 @@ TEST_CASE("make_state and cell_thermo round-trip", "[hydro]") {
     CHECK_THAT(s.total_energy[c], WithinAbs(2.5 + 0.5 * (0.09 + 0.16 + 1.44), 1e-14));
     CHECK_THAT(t.density[c], WithinRel(2.0, 1e-13));
     CHECK_THAT(t.pressure[c], WithinRel(0.4 * 2.0 * 2.5, 1e-13));
-    CHECK_THAT(t.impedance[c], WithinRel(2.0 * std::sqrt(1.4 * 2.0 / 2.0), 1e-13));
+    CHECK_THAT(t.sound_speed[c], WithinRel(std::sqrt(1.4 * 2.0 / 2.0), 1e-13));
+    CHECK_THAT(t.shock_coefficient[c], WithinRel(1.2, 1e-15));
   }
   CHECK_THAT(mass, WithinRel(2.0 * 1.5, 1e-13));
 
@@ -204,25 +206,44 @@ TEST_CASE("make_state and cell_thermo round-trip", "[hydro]") {
                   std::runtime_error);
 }
 
-TEST_CASE("assemble_nodal_system: hand-computed corner of a unit cell", "[hydro]") {
+TEST_CASE("corner_impedances and assemble_nodal_system: hand-computed corner",
+          "[hydro]") {
   // Corner node 1 = (1,0,0) of a unit cell touches its +x, -y and -z faces,
-  // each giving S_pf = 1/4 along the outward axis. Eq. 4:
-  //   M = Z/4 (e_x e_x + e_y e_y + e_z e_z) = Z/4 I,
-  //   B = P/4 (1, -1, -1) + Z/4 V_c.
+  // each giving S_pf = 1/4 along the outward axis. With V_p = V_c + (dv,0,0)
+  // the jump is seen only by the +x face:
+  //   Z_x = rho (a + Gamma dv), Z_0 = rho a on the -y and -z faces,
+  // and Eq. 4 gives
+  //   M = 1/4 diag(Z_x, Z_0, Z_0),
+  //   B = P/4 (1, -1, -1) + 1/4 (Z_x v_x, Z_0 v_y, Z_0 v_z).
   const IdealGasEOS eos(1.4);
   const Vec3 v = {0.3, -0.2, 0.1};
+  const double dv = 0.5;
   const HydroState s = uniform_state(generate_structured_mesh({1, 1, 1}), 1.5, v, 2.0);
   const auto faces = cell_face_vectors(s.mesh);
   const CellThermo t = cell_thermo(s, faces, eos);
-  const double P = t.pressure[0], Z = t.impedance[0];
-  const auto sys = assemble_nodal_system(s, faces, t);
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      CHECK_THAT(sys.M[1][i][j], WithinAbs(i == j ? Z / 4 : 0.0, 1e-15));
+  std::vector<Vec3> V(s.mesh.num_nodes(), v);
+  V[1][0] += dv;
+  const auto Z = corner_impedances(s, faces, t, V);
+  const double rho = 1.5, a = t.sound_speed[0], P = t.pressure[0];
+  const double Zx = rho * (a + 1.2 * dv), Z0 = rho * a;
+  for (int l = 0; l < kFacesPerCell; ++l) {
+    for (int n = 0; n < kNodesPerFace; ++n) {
+      INFO("face " << l << ", node " << n);
+      const bool at_1 = s.mesh.cell_nodes[0][kHexFaceNodes[l][n]] == 1;
+      const bool x_face = std::abs(faces[0][l][n][0]) > 0.0;
+      CHECK_THAT(Z[0][l][n], WithinRel(at_1 && x_face ? Zx : Z0, 1e-14));
     }
   }
-  check_vec(sys.B[1], {P / 4 + Z / 4 * v[0], -P / 4 + Z / 4 * v[1],
-                       -P / 4 + Z / 4 * v[2]});
+
+  const auto sys = assemble_nodal_system(s, faces, t, Z);
+  const Vec3 diag = {Zx / 4, Z0 / 4, Z0 / 4};
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      CHECK_THAT(sys.M[1][i][j], WithinAbs(i == j ? diag[i] : 0.0, 1e-15));
+    }
+  }
+  check_vec(sys.B[1], {P / 4 + Zx / 4 * v[0], -P / 4 + Z0 / 4 * v[1],
+                       -P / 4 + Z0 / 4 * v[2]});
 }
 
 TEST_CASE("nodal_velocities: uniform flow gives V_p = V_c at every node", "[hydro]") {
@@ -234,7 +255,7 @@ TEST_CASE("nodal_velocities: uniform flow gives V_p = V_c at every node", "[hydr
   const HydroState s = uniform_state(distorted_mesh(), 1.0, v, 2.5);
   const auto faces = cell_face_vectors(s.mesh);
   const CellThermo t = cell_thermo(s, faces, eos);
-  const auto V = nodal_velocities(s.mesh, kSodBcs, t, assemble_nodal_system(s, faces, t));
+  const auto V = nodal_velocities(s, faces, t, kSodBcs);
   for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
     INFO("node " << p);
     check_vec(V[p], v, 1e-12);
@@ -245,11 +266,54 @@ TEST_CASE("nodal_velocities: uniform flow gives V_p = V_c at every node", "[hydr
   const HydroState s2 = uniform_state(distorted_mesh(), 1.0, w, 2.5);
   const CellThermo t2 = cell_thermo(s2, faces, eos);
   const BoundarySet all_out = {kOut, kOut, kOut, kOut, kOut, kOut};
-  const auto V2 =
-      nodal_velocities(s2.mesh, all_out, t2, assemble_nodal_system(s2, faces, t2));
+  const auto V2 = nodal_velocities(s2, faces, t2, all_out);
   for (Index p = 0; p < s2.mesh.num_nodes(); ++p) {
     INFO("node " << p);
     check_vec(V2[p], w, 1e-12);
+  }
+}
+
+TEST_CASE("nodal_velocities: uniform cold flow gives V_p = V_c", "[hydro]") {
+  // eps = 0: a = 0, P = 0, and no velocity jumps, so every Z_cfp is zero and
+  // M_p is singular. The forces do not depend on V_p; it stays at the mean of
+  // the surrounding cell velocities, i.e. V_c.
+  const IdealGasEOS eos(1.4);
+  const Vec3 w = {0.3, -0.5, 0.2};
+  const HydroState s = uniform_state(distorted_mesh(), 1.0, w, 0.0);
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const BoundarySet all_out = {kOut, kOut, kOut, kOut, kOut, kOut};
+  const auto V = nodal_velocities(s, faces, t, all_out);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    check_vec(V[p], w, 1e-14);
+  }
+}
+
+TEST_CASE("nodal_velocities: colliding cold slabs give the two-shock velocity",
+          "[hydro]") {
+  // 4x1x1 unit cells, symmetry y/z walls, outflow x ends. Cold gas (eps = 0):
+  // rho = 4, u = 1 in the two left cells; rho = 1, u = 0 in the two right
+  // ones. At the interface nodes (x = 2) only the x faces see a jump, and
+  // Eq. 4 with the two-shock Z reads
+  //   rho_L Gamma (1 - V)^2 = rho_R Gamma V^2  =>  2 (1 - V) = V,  V = 2/3,
+  // the strong-shock (Rankine-Hugoniot) momentum balance. Nodes inside each
+  // slab move with it.
+  const IdealGasEOS eos(1.4);
+  StructuredMeshSpec spec;
+  spec.nx = 4;
+  spec.x_max = 4.0;
+  const HydroState s = make_state(generate_structured_mesh(spec), {4.0, 4.0, 1.0, 1.0},
+                                  {1.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0},
+                                  {0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0});
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const auto V = nodal_velocities(s, faces, t, kSodBcs);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p << " at x = " << s.mesh.node_x[p]);
+    const double x = s.mesh.node_x[p];
+    const double expected = x < 2.0 ? 1.0 : (x > 2.0 ? 0.0 : 2.0 / 3.0);
+    check_vec(V[p], {expected, 0.0, 0.0}, 1e-12);
   }
 }
 
@@ -261,7 +325,7 @@ TEST_CASE("corner_forces: P_cfp = P_c when V_p = V_c", "[hydro]") {
   const auto faces = cell_face_vectors(s.mesh);
   const CellThermo t = cell_thermo(s, faces, eos);
   const std::vector<Vec3> V(s.mesh.num_nodes(), v);
-  const auto F = corner_forces(s, faces, t, V);
+  const auto F = corner_forces(s, faces, t, corner_impedances(s, faces, t, V), V);
   for (Index c = 0; c < s.mesh.num_cells(); ++c) {
     const auto n = corner_vectors(faces[c]);
     for (int k = 0; k < kNodesPerCell; ++k) {
@@ -332,7 +396,8 @@ TEST_CASE("lagrangian_step: Sod on a thin slab", "[hydro][integration]") {
   // velocity) and density is close to the exact solution in L1. Measured L1
   // errors with dt ~ dx/20: 0.0298, 0.0202, 0.0131, 0.0084 for nx = 50, 100,
   // 200, 400 (order ~0.6, as expected for first order with a contact and a
-  // shock). The bound is loose regression; the Sod acceptance test (Task 6)
+  // shock), with the acoustic Z; the two-shock Z gives 0.0202 at nx = 100
+  // too (re-measured at that resolution only). The bound is loose regression; the Sod acceptance test (Task 6)
   // runs through the driver.
   const Index nx = 100;
   StructuredMeshSpec spec;
@@ -384,6 +449,56 @@ TEST_CASE("lagrangian_step: Sod on a thin slab", "[hydro][integration]") {
     const auto& cn = s.mesh.cell_nodes[i];
     const double x0 = s.mesh.node_x[cn[0]], x1 = s.mesh.node_x[cn[1]];
     l1 += std::abs(t.density[i] - exact(0.5 * (x0 + x1))) * (x1 - x0);
+  }
+  INFO("L1 density error " << l1);
+  CHECK(l1 < 0.025);
+}
+
+TEST_CASE("lagrangian_step: planar Noh with a cold gas", "[hydro][integration]") {
+  // Cold (eps = 0) ideal gas, gamma = 5/3, rho = 1, u = -1 on 100x1x1 cells of
+  // [0,1]x[0,0.01]x[0,0.01]: symmetry wall at x = 0, outflow (P* = 0 while
+  // the gas there is cold) at x = 1, symmetry y/z walls. Fixed dt = 5e-4 to
+  // t = 0.6 (CFL ~0.1 on the post-shock a + |u|). Exact solution: a shock at
+  // x = D t = 0.2 (D = 1/3), gas at rest behind it with rho = 4, eps = 1/2,
+  // and the untouched inflow ahead of it. The acoustic Z would make the
+  // first nodal solve singular. Neither wall does work, so total energy is
+  // conserved. Measured: plateau rho 3.993-4.000 on [0.04, 0.19], wall
+  // heating in the 2 cells at the wall (rho 2.54, the classic Noh error),
+  // shock 3 cells wide at x = 0.201, and L1 density errors 0.0376, 0.0188,
+  // 0.0094, 0.0047 for nx = 50, 100, 200, 400 (dt = dx/20), first order.
+  const Index nx = 100;
+  StructuredMeshSpec spec;
+  spec.nx = nx;
+  spec.y_max = 0.01;
+  spec.z_max = 0.01;
+  const IdealGasEOS eos(5.0 / 3.0);
+  HydroState s = uniform_state(generate_structured_mesh(spec), 1.0, {-1.0, 0.0, 0.0}, 0.0);
+  const BoundarySet bcs = {kSym, kOut, kSym, kSym, kSym, kSym};
+  const double e0 = total_energy(s);
+
+  const double dt = 5e-4;
+  for (int step = 0; step < 1200; ++step) lagrangian_step(s, bcs, eos, dt);
+
+  CHECK_THAT(total_energy(s), WithinRel(e0, 1e-12));
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  double l1 = 0.0;
+  for (Index c = 0; c < nx; ++c) {
+    const auto& cn = s.mesh.cell_nodes[c];
+    const double x0 = s.mesh.node_x[cn[0]], x1 = s.mesh.node_x[cn[1]];
+    const double xc = 0.5 * (x0 + x1);
+    const double eps = s.total_energy[c] - 0.5 * s.vel_x[c] * s.vel_x[c];
+    INFO("cell " << c << " at x = " << xc);
+    if (xc > 0.04 && xc < 0.18) {
+      CHECK_THAT(t.density[c], WithinRel(4.0, 0.01));
+      CHECK_THAT(eps, WithinRel(0.5, 0.01));
+      CHECK_THAT(s.vel_x[c], WithinAbs(0.0, 1e-4));
+    }
+    if (xc > 0.25) {
+      CHECK_THAT(t.density[c], WithinRel(1.0, 1e-10));
+      CHECK_THAT(s.vel_x[c], WithinAbs(-1.0, 1e-10));
+    }
+    l1 += std::abs(t.density[c] - (xc < 0.2 ? 4.0 : 1.0)) * (x1 - x0);
   }
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.025);

@@ -33,6 +33,10 @@ nothing runs outside the test suite.
   cell and node updates. It conserves mass, energy and volume to round-off
   in a closed box, and Sod on a 100×2×2 slab matches the exact solution
   (L1 density error 0.020) with a fixed timestep
+- Two-shock (Dukowicz) impedance in the nodal solver instead of the paper's
+  acoustic one, so cold gases work: planar Noh on 100 cells gives the
+  post-shock plateau within 0.2% and converges at first order (see
+  [docs/decisions.md](docs/decisions.md))
 
 ## Out of scope for v1.0
 

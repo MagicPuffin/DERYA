@@ -84,9 +84,31 @@ namespace hydro`). Links `mesh`, `bc`, `eos`. Tests in `tests/unit/test_hydro.cp
       (1e-13) over 50 steps of a non-uniform state; Sod on a 100x2x2 slab to
       t = 0.2 with fixed dt stays exactly 1D and has L1 density error 0.0202
       vs `sod.json` (converges at order ~0.6 over nx = 50-400; bound 0.025)
-- [ ] Before Noh: a cold gas (eps = 0) gives a = 0, Z = 0 and a singular M_p.
-      Needs an impedance floor or a shock-strength term in Z_c (a design
-      decision, not in the paper)
+- [x] Before Noh: a cold gas (eps = 0) gives a = 0, Z = 0 and a singular M_p.
+      Decided: two-shock impedance, solved by per-node Newton (Task 4b,
+      `decisions.md`)
+
+## Task 4b — Two-shock impedance (`src/eos/`, `src/hydro/`) — ✅ DONE
+Files: `src/eos/eos.hpp`, `src/hydro/hydro.{hpp,cpp}`,
+`tests/unit/test_{eos,hydro}.cpp`.
+- [x] `EOS::shock_coefficient(rho, eps)`; ideal gas `(gamma+1)/2`
+- [x] `CellThermo` carries `sound_speed` and `shock_coefficient` instead of
+      a per-cell impedance; `corner_impedances(s, faces, thermo, V_p)` gives
+      `Z_cfp`, which `assemble_nodal_system` and `corner_forces` take
+- [x] `nodal_velocities(s, faces, thermo, bcs)`: per-node Newton solve of
+      Eq. 4. Tests: two cold slabs colliding (density ratio 4) give the
+      two-shock interface velocity 2/3; uniform cold flow gives V_p = V_c
+- [x] Existing tests still hold (Sod L1 0.0202 at nx = 100, unchanged to 3
+      digits); planar Noh smoke test (100 cells, gamma = 5/3, t = 0.6):
+      plateau rho within 1% of 4, energy conserved to 1e-12, L1 density
+      error 0.0188, first order over nx = 50-400
+- [x] Flagged addition: `cell_thermo` clamps eps = E - |V|^2/2 to 0 when it
+      is negative by round-off (1e-13 of the kinetic energy) and throws
+      beyond that. A cold, moving gas gave eps = -5.6e-17, so a = NaN; the
+      acoustic solver would have hit it too
+- Cost: Newton takes ~3-4 iterations per step, so Sod runs ~3.8x slower
+  (15 s vs 4 s in the test suite). Lagging Z from the previous step is the
+  fallback if this matters later
 
 ## Task 5 — Timestep/CFL controller (`src/timestep/`)
 - [ ] CFL-limited dt test on a trivial single-cell case, known analytic value
@@ -98,6 +120,11 @@ namespace hydro`). Links `mesh`, `bc`, `eos`. Tests in `tests/unit/test_hydro.cp
 - [ ] Minimal checkpoint output (CSV/JSON dump, full schema deferred)
 - [ ] **First integration milestone:** Sod via `hydro_run`, checked against
       `tests/oracle_data/sod.json`
+- [ ] `scripts/plot_comparison.py`: numerical vs exact profiles (rho, u, P,
+      eps) from a `hydro_run` dump and the oracle data, as PNG. Run on
+      demand, not from `ctest`. A throwaway version made for Task 4b
+      (Noh, Sod at 100 cells) showed the expected wall heating and
+      first-order smearing of the rarefaction and shock
 
 ## After Task 6
 Extend the same pattern to Noh and Saltzman (v0.1's actual acceptance bar).

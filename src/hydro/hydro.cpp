@@ -1,5 +1,6 @@
 #include "hydro.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,82 @@ Vec3 node_position(const mesh::Mesh& m, Index p) {
 
 Vec3 cell_velocity(const HydroState& s, Index c) {
   return {s.vel_x[c], s.vel_y[c], s.vel_z[c]};
+}
+
+// Relative round-off allowed in eps = E - |V|^2/2 (see cell_thermo).
+constexpr double kEnergyRoundoff = 1e-13;
+
+// Newton solve of the nodal system (see nodal_velocities). Converged when the
+// tangential residual is below kNewtonTolerance times the largest nodal flux
+// sum_c sum_f S_pf (|P_c| + Z_cfp |s_cfp|) over the mesh, so that cold,
+// quiescent nodes are judged against the flow as a whole. Also converged when
+// the step is at round-off, kStepRoundoff max_c (|V_c| + a_c): where the
+// Jacobian is singular the residual and the flux scale vanish together.
+constexpr double kStepRoundoff = 1e-14;
+constexpr int kMaxNewtonIterations = 50;
+constexpr double kNewtonTolerance = 1e-13;
+// Relative regularization of the Newton Jacobian, for nodes where it is
+// singular (cold cells moving alike): the step then has no component along
+// the null space, so V_p keeps its initial value there.
+constexpr double kNewtonRegularization = 1e-8;
+
+// rho_c (a_c + k Gamma_c |s_cfp|), s_cfp = (V_p - V_c) . n_pf: the impedance
+// Z_cfp for k = 1, and the Newton Jacobian's d(Z_cfp s_cfp)/ds_cfp for k = 2.
+std::vector<CornerValues> scaled_impedances(const HydroState& s,
+                                            const std::vector<CellFaceVectors>& faces,
+                                            const CellThermo& thermo,
+                                            const std::vector<Vec3>& node_velocity,
+                                            double k) {
+  const mesh::Mesh& m = s.mesh;
+  std::vector<CornerValues> Z(m.num_cells());
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const double rho = thermo.density[c];
+    const double a = thermo.sound_speed[c];
+    const double gamma = thermo.shock_coefficient[c];
+    const Vec3 v = cell_velocity(s, c);
+    for (int l = 0; l < kFacesPerCell; ++l) {
+      for (int n = 0; n < kNodesPerFace; ++n) {
+        const Vec3& Vp = node_velocity[m.cell_nodes[c][kHexFaceNodes[l][n]]];
+        const Vec3& Sn = faces[c][l][n];
+        const double S = std::sqrt(dot(Sn, Sn));
+        const Vec3 dv = {Vp[0] - v[0], Vp[1] - v[1], Vp[2] - v[2]};
+        const double jump = S == 0.0 ? 0.0 : std::abs(dot(dv, Sn)) / S;
+        Z[c][l][n] = rho * (a + k * gamma * jump);
+      }
+    }
+  }
+  return Z;
+}
+
+// Largest nodal flux sum_c sum_f S_pf (|P_c| + Z_cfp |s_cfp|).
+double nodal_flux_scale(const HydroState& s, const std::vector<CellFaceVectors>& faces,
+                        const CellThermo& thermo, const std::vector<CornerValues>& Z,
+                        const std::vector<Vec3>& node_velocity) {
+  const mesh::Mesh& m = s.mesh;
+  std::vector<double> flux(m.num_nodes(), 0.0);
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Vec3 v = cell_velocity(s, c);
+    for (int l = 0; l < kFacesPerCell; ++l) {
+      for (int n = 0; n < kNodesPerFace; ++n) {
+        const Index p = m.cell_nodes[c][kHexFaceNodes[l][n]];
+        const Vec3& Vp = node_velocity[p];
+        const Vec3& Sn = faces[c][l][n];
+        const double S = std::sqrt(dot(Sn, Sn));
+        const Vec3 dv = {Vp[0] - v[0], Vp[1] - v[1], Vp[2] - v[2]};
+        flux[p] += S * std::abs(thermo.pressure[c]) + Z[c][l][n] * std::abs(dot(dv, Sn));
+      }
+    }
+  }
+  return flux.empty() ? 0.0 : *std::max_element(flux.begin(), flux.end());
+}
+
+// Component of x tangent to the (orthonormal) wall normals.
+Vec3 tangential(Vec3 x, const std::vector<Vec3>& walls) {
+  for (const Vec3& w : walls) {
+    const double xn = dot(x, w);
+    for (int d = 0; d < 3; ++d) x[d] -= xn * w[d];
+  }
+  return x;
 }
 
 }  // namespace
@@ -102,7 +179,8 @@ CellThermo cell_thermo(const HydroState& s,
   CellThermo t;
   t.density.resize(num_cells);
   t.pressure.resize(num_cells);
-  t.impedance.resize(num_cells);
+  t.sound_speed.resize(num_cells);
+  t.shock_coefficient.resize(num_cells);
   for (Index c = 0; c < num_cells; ++c) {
     const double volume = cell_volume(s.mesh, c, faces[c]);
     if (!(volume > 0.0)) {
@@ -112,28 +190,48 @@ CellThermo cell_thermo(const HydroState& s,
     }
     const Vec3 v = cell_velocity(s, c);
     const double rho = s.mass[c] / volume;
-    const double eps = s.total_energy[c] - 0.5 * dot(v, v);
+    const double kinetic = 0.5 * dot(v, v);
+    double eps = s.total_energy[c] - kinetic;
+    // eps is a difference of numbers of size `kinetic`, so in a cold, moving
+    // gas it comes out a few ulp negative; that is clamped, more is an error.
+    if (eps < 0.0) {
+      if (eps < -kEnergyRoundoff * kinetic) {
+        throw std::runtime_error("cell " + std::to_string(c) +
+                                 " has negative internal energy " +
+                                 std::to_string(eps));
+      }
+      eps = 0.0;
+    }
     t.density[c] = rho;
     t.pressure[c] = eos.pressure(rho, eps);
-    t.impedance[c] = rho * eos.sound_speed(rho, eps);
+    t.sound_speed[c] = eos.sound_speed(rho, eps);
+    t.shock_coefficient[c] = eos.shock_coefficient(rho, eps);
   }
   return t;
 }
 
+std::vector<CornerValues> corner_impedances(const HydroState& s,
+                                            const std::vector<CellFaceVectors>& faces,
+                                            const CellThermo& thermo,
+                                            const std::vector<Vec3>& node_velocity) {
+  return scaled_impedances(s, faces, thermo, node_velocity, 1.0);
+}
+
 NodalSystem assemble_nodal_system(const HydroState& s,
                                   const std::vector<CellFaceVectors>& faces,
-                                  const CellThermo& thermo) {
+                                  const CellThermo& thermo,
+                                  const std::vector<CornerValues>& impedance) {
   const mesh::Mesh& m = s.mesh;
   NodalSystem sys;
   sys.M.assign(m.num_nodes(), Mat3{});
   sys.B.assign(m.num_nodes(), Vec3{});
   for (Index c = 0; c < m.num_cells(); ++c) {
     const double P = thermo.pressure[c];
-    const double Z = thermo.impedance[c];
     const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
         const Index p = m.cell_nodes[c][kHexFaceNodes[l][n]];
+        const double Z = impedance[c][l][n];
         // With Sn = S_pf n_pf: S_pf (n x n) = (Sn x Sn) / S_pf.
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
@@ -149,29 +247,87 @@ NodalSystem assemble_nodal_system(const HydroState& s,
   return sys;
 }
 
-std::vector<Vec3> nodal_velocities(const mesh::Mesh& m, const bc::BoundarySet& bcs,
-                                   const CellThermo& thermo, NodalSystem system) {
-  bc::apply_pressure_bcs(m, bcs, thermo.pressure, system.B);
+std::vector<Vec3> nodal_velocities(const HydroState& s,
+                                   const std::vector<CellFaceVectors>& faces,
+                                   const CellThermo& thermo,
+                                   const bc::BoundarySet& bcs) {
+  // Per node, Eq. 4 reads R_p(V_p) = M_p V_p - B_p
+  //   = sum_c sum_f S_pf [Z_cfp s_cfp - P_c] n_pf (+ outflow terms) = 0,
+  // with s_cfp = (V_p - V_c) . n_pf, up to a wall-normal reaction. Each term is
+  // the gradient of the convex rho (a s^2/2 + Gamma |s|^3/3) - P s, and the
+  // Jacobian is J_p = sum S_pf rho_c (a_c + 2 Gamma_c |s_cfp|) (n_pf x n_pf).
+  const mesh::Mesh& m = s.mesh;
   const auto walls = bc::wall_normals(m, bcs);
-  std::vector<Vec3> V(m.num_nodes());
-  for (Index p = 0; p < m.num_nodes(); ++p) {
-    V[p] = bc::solve_nodal_velocity(system.M[p], system.B[p], walls[p]);
+
+  // Initial guess: the mean velocity of the cells at each node, on its walls.
+  std::vector<Vec3> V(m.num_nodes(), Vec3{});
+  std::vector<int> count(m.num_nodes(), 0);
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Vec3 v = cell_velocity(s, c);
+    for (int k = 0; k < kNodesPerCell; ++k) {
+      const Index p = m.cell_nodes[c][k];
+      for (int d = 0; d < 3; ++d) V[p][d] += v[d];
+      ++count[p];
+    }
   }
-  return V;
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    for (int d = 0; d < 3; ++d) V[p][d] /= count[p];
+    V[p] = tangential(V[p], walls[p]);
+  }
+
+  double speed = 0.0;
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Vec3 v = cell_velocity(s, c);
+    speed = std::max(speed, std::sqrt(dot(v, v)) + thermo.sound_speed[c]);
+  }
+
+  for (int iteration = 0; iteration < kMaxNewtonIterations; ++iteration) {
+    const auto Z = scaled_impedances(s, faces, thermo, V, 1.0);
+    NodalSystem system = assemble_nodal_system(s, faces, thermo, Z);
+    bc::apply_pressure_bcs(m, bcs, thermo.pressure, system.B);
+    std::vector<Vec3> R(m.num_nodes());
+    double residual = 0.0;
+    for (Index p = 0; p < m.num_nodes(); ++p) {
+      Vec3 r;
+      for (int d = 0; d < 3; ++d) r[d] = dot(system.M[p][d], V[p]) - system.B[p][d];
+      R[p] = tangential(r, walls[p]);
+      residual = std::max(residual, std::sqrt(dot(R[p], R[p])));
+    }
+    if (residual <= kNewtonTolerance * nodal_flux_scale(s, faces, thermo, Z, V)) {
+      return V;
+    }
+
+    const auto J = assemble_nodal_system(
+        s, faces, thermo, scaled_impedances(s, faces, thermo, V, 2.0)).M;
+    double max_step = 0.0;
+    for (Index p = 0; p < m.num_nodes(); ++p) {
+      Mat3 A = J[p];
+      const double trace = A[0][0] + A[1][1] + A[2][2];
+      if (!(trace > 0.0)) continue;
+      for (int d = 0; d < 3; ++d) A[d][d] += kNewtonRegularization * trace;
+      const Vec3 step = bc::solve_nodal_velocity(A, R[p], walls[p]);
+      for (int d = 0; d < 3; ++d) V[p][d] -= step[d];
+      max_step = std::max(max_step, std::sqrt(dot(step, step)));
+    }
+    if (max_step <= kStepRoundoff * speed) return V;
+  }
+  throw std::runtime_error("nodal solver: Newton did not converge in " +
+                           std::to_string(kMaxNewtonIterations) + " iterations");
 }
 
 std::vector<std::array<Vec3, kNodesPerCell>> corner_forces(
     const HydroState& s, const std::vector<CellFaceVectors>& faces,
-    const CellThermo& thermo, const std::vector<Vec3>& node_velocity) {
+    const CellThermo& thermo, const std::vector<CornerValues>& impedance,
+    const std::vector<Vec3>& node_velocity) {
   const mesh::Mesh& m = s.mesh;
   std::vector<std::array<Vec3, kNodesPerCell>> F(m.num_cells());
   for (Index c = 0; c < m.num_cells(); ++c) {
     const double P = thermo.pressure[c];
-    const double Z = thermo.impedance[c];
     const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
         const int k = kHexFaceNodes[l][n];
+        const double Z = impedance[c][l][n];
         const Vec3& Vp = node_velocity[m.cell_nodes[c][k]];
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
@@ -217,9 +373,10 @@ void lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
                      const eos::EOS& eos, double dt) {
   const auto faces = cell_face_vectors(s.mesh);
   const CellThermo thermo = cell_thermo(s, faces, eos);
-  const auto V = nodal_velocities(s.mesh, bcs, thermo,
-                                  assemble_nodal_system(s, faces, thermo));
-  const auto F = corner_forces(s, faces, thermo, V);
+  const auto V = nodal_velocities(s, faces, thermo, bcs);
+  // Z at the converged V_p, so that the corner forces balance at each node.
+  const auto Z = corner_impedances(s, faces, thermo, V);
+  const auto F = corner_forces(s, faces, thermo, Z, V);
   update_cells(s, F, V, dt);
   move_nodes(s.mesh, V, dt);
 }
