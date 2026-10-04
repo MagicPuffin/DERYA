@@ -121,8 +121,9 @@ void update_cells(HydroState& s,
 void move_nodes(mesh::Mesh& m, const std::vector<Vec3>& node_velocity, double dt);
 
 // One first-order Lagrangian step of size dt: geometry, thermodynamics and
-// nodal solve at t^n, then Eq. 1 and Eq. 2.
-void lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
+// nodal solve at t^n, then Eq. 1 and Eq. 2. Returns the nodal velocities V_p
+// used (for the timestep controller's volume criterion).
+std::vector<Vec3> lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
                      const eos::EOS& eos, double dt);
 
 }  // namespace hydro::lagrangian

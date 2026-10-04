@@ -369,7 +369,7 @@ void move_nodes(mesh::Mesh& m, const std::vector<Vec3>& node_velocity, double dt
   }
 }
 
-void lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
+std::vector<Vec3> lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
                      const eos::EOS& eos, double dt) {
   const auto faces = cell_face_vectors(s.mesh);
   const CellThermo thermo = cell_thermo(s, faces, eos);
@@ -379,6 +379,7 @@ void lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
   const auto F = corner_forces(s, faces, thermo, Z, V);
   update_cells(s, F, V, dt);
   move_nodes(s.mesh, V, dt);
+  return V;
 }
 
 }  // namespace hydro::lagrangian

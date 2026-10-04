@@ -63,6 +63,19 @@ stop and report rather than deciding to override it.
   up to the Newton residual. A cold, moving gas also needs
   `eps = E - |V|^2/2` clamped to 0 when it is negative by round-off (it
   throws beyond 1e-13 of the kinetic energy). Decided before Task 5 (Task 4b).
+- **Lagrangian timestep** (the paper gives none; EUCCLHYD practice, after
+  Maire et al.): `dt^{n+1} = min(C_cfl min_c lambda_c / a_c,
+  C_V min_c V_c / |dV_c/dt|, C_M dt^n, dt_max)`, with `lambda_c = V_c /
+  (largest face area)` (the shortest edge of a box cell) and `dV_c/dt =
+  sum_p n_cp . V_p` (exact by the GCL) from the step just taken. Defaults
+  `C_cfl = 0.25`, `C_V = 0.1`, `C_M = 1.01`, `dt_max = inf`. The volume
+  criterion is what bounds dt in a cold gas (a = 0); a cold cell in
+  uniform motion has no limit. The first step has no V_p, so the volume
+  criterion is skipped and `dt^0 = min(dt_initial, CFL)`. The global min goes
+  through `sync::global_reduce` (a no-op until v0.4). `lambda_c` uses every
+  direction, so a thin-slab cell thinner than its in-plane size limits dt
+  more than needed; slab tests keep the extrusion at least one cell wide.
+  Decided at the start of Task 5.
 
 ## Testing
 - **Tier 1 — unit tests (Catch2):** one function/equation at a time, test

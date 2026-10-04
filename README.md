@@ -15,9 +15,9 @@ Fusion deliverable.
 ## Status
 
 **v0.1 in progress** (first-order Lagrangian hydro, no AMR). The EOS, mesh,
-boundary conditions and the first-order Lagrangian step are done and
-unit-tested. There is no CFL controller or `hydro_run` driver yet, so
-nothing runs outside the test suite.
+boundary conditions, the first-order Lagrangian step and the timestep
+controller are done and unit-tested. There is no `hydro_run` driver yet,
+so nothing runs outside the test suite.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -37,6 +37,8 @@ nothing runs outside the test suite.
   acoustic one, so cold gases work: planar Noh on 100 cells gives the
   post-shock plateau within 0.2% and converges at first order (see
   [docs/decisions.md](docs/decisions.md))
+- Timestep controller: acoustic CFL, relative volume change (which bounds
+  dt in a cold gas), growth limit and `dt_max`
 
 ## Out of scope for v1.0
 

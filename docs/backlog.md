@@ -110,9 +110,25 @@ Files: `src/eos/eos.hpp`, `src/hydro/hydro.{hpp,cpp}`,
   (15 s vs 4 s in the test suite). Lagging Z from the previous step is the
   fallback if this matters later
 
-## Task 5 — Timestep/CFL controller (`src/timestep/`)
-- [ ] CFL-limited dt test on a trivial single-cell case, known analytic value
-- [ ] Implement, wired through a (no-op for now) `global_reduce`
+## Task 5 — Timestep/CFL controller (`src/timestep/`) — ✅ DONE
+Files: new `src/timestep/`, new `src/sync/` (header-only `global_reduce`),
+`src/CMakeLists.txt`, `tests/unit/CMakeLists.txt`, new
+`tests/unit/test_timestep.cpp`. Flagged: `src/hydro/hydro.{hpp,cpp}`
+(`lagrangian_step` returns the V_p it used, for the volume criterion).
+Criteria in `decisions.md` ("Lagrangian timestep").
+- [x] CFL-limited dt test on a trivial single-cell case, known analytic value
+      (box cell 2x1x0.5, a = 1: dt = C_cfl * 0.5); volume criterion on an
+      expanding cold cell (V_p = x_p: dV/dt = 3V, dt = C_V / 3); growth
+      limit and dt_max; cold uniform flow has no CFL/volume limit
+- [x] Implement, wired through a (no-op for now) `global_reduce`:
+      `timestep::stable_dt(s, eos, V_p, dt_prev, params)`,
+      `timestep::characteristic_length()`, `sync::global_reduce()`. A rigid
+      translation's dV/dt is only zero to round-off, so rates below 1e-12 of
+      their terms count as zero
+- Checked outside the suite (a scratch driver, as Task 6 will do): Noh from
+  a cold start with dt^0 = 1e-4 takes 856 steps, dt growing to 8.2e-4 (the
+  CFL limit of the compressed post-shock cells), L1 0.0194 vs 0.0188 with
+  the fixed dt = 5e-4
 
 ## Task 6 — Driver & first real run (`src/app/`, minimal `src/io/`)
 - [ ] Minimal JSON deck schema for Sod
@@ -120,6 +136,11 @@ Files: `src/eos/eos.hpp`, `src/hydro/hydro.{hpp,cpp}`,
 - [ ] Minimal checkpoint output (CSV/JSON dump, full schema deferred)
 - [ ] **First integration milestone:** Sod via `hydro_run`, checked against
       `tests/oracle_data/sod.json`
+- [ ] Thin-slab guard: when reading a deck, warn if a single-cell extruded
+      direction (thin-slab mode) is thinner than the in-plane cell size,
+      since `lambda_c` would then limit dt for no physical reason (Task 5,
+      `decisions.md`, "Lagrangian timestep"). Test: a deck with a thin
+      extrusion produces the warning, a cubic-cell one does not
 - [ ] `scripts/plot_comparison.py`: numerical vs exact profiles (rho, u, P,
       eps) from a `hydro_run` dump and the oracle data, as PNG. Run on
       demand, not from `ctest`. A throwaway version made for Task 4b
