@@ -54,11 +54,13 @@ constexpr double kNewtonRegularization = 1e-8;
 constexpr double kMinJacobianTrace =
     std::numeric_limits<double>::min() / kNewtonRegularization;
 
-// rho_c (a_c + k Gamma_c |s_cfp|), s_cfp = (V_p - V_c) . n_pf: the impedance
-// Z_cfp for k = 1, and the Newton Jacobian's d(Z_cfp s_cfp)/ds_cfp for k = 2.
+// rho_c (a_c + k Gamma_c |s_cfp|), s_cfp = (V_p - V~_c(x_p)) . n_pf: the
+// impedance Z_cfp for k = 1, and the Newton Jacobian's d(Z_cfp s_cfp)/ds_cfp
+// for k = 2.
 std::vector<CornerValues> scaled_impedances(const HydroState& s,
                                             const std::vector<CellFaceVectors>& faces,
                                             const CellThermo& thermo,
+                                            const CornerState& corners,
                                             const std::vector<Vec3>& node_velocity,
                                             double k) {
   const mesh::Mesh& m = s.mesh;
@@ -67,10 +69,11 @@ std::vector<CornerValues> scaled_impedances(const HydroState& s,
     const double rho = thermo.density[c];
     const double a = thermo.sound_speed[c];
     const double gamma = thermo.shock_coefficient[c];
-    const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
-        const Vec3& Vp = node_velocity[m.cell_nodes[c][kHexFaceNodes[l][n]]];
+        const int corner = kHexFaceNodes[l][n];
+        const Vec3& v = corners.velocity[c][corner];
+        const Vec3& Vp = node_velocity[m.cell_nodes[c][corner]];
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
         const Vec3 dv = {Vp[0] - v[0], Vp[1] - v[1], Vp[2] - v[2]};
@@ -82,22 +85,24 @@ std::vector<CornerValues> scaled_impedances(const HydroState& s,
   return Z;
 }
 
-// Largest nodal flux sum_c sum_f S_pf (|P_c| + Z_cfp |s_cfp|).
+// Largest nodal flux sum_c sum_f S_pf (|P~_c(x_p)| + Z_cfp |s_cfp|).
 double nodal_flux_scale(const HydroState& s, const std::vector<CellFaceVectors>& faces,
-                        const CellThermo& thermo, const std::vector<CornerValues>& Z,
+                        const CornerState& corners, const std::vector<CornerValues>& Z,
                         const std::vector<Vec3>& node_velocity) {
   const mesh::Mesh& m = s.mesh;
   std::vector<double> flux(m.num_nodes(), 0.0);
   for (Index c = 0; c < m.num_cells(); ++c) {
-    const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
-        const Index p = m.cell_nodes[c][kHexFaceNodes[l][n]];
+        const int corner = kHexFaceNodes[l][n];
+        const Vec3& v = corners.velocity[c][corner];
+        const Index p = m.cell_nodes[c][corner];
         const Vec3& Vp = node_velocity[p];
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
         const Vec3 dv = {Vp[0] - v[0], Vp[1] - v[1], Vp[2] - v[2]};
-        flux[p] += S * std::abs(thermo.pressure[c]) + Z[c][l][n] * std::abs(dot(dv, Sn));
+        flux[p] += S * std::abs(corners.pressure[c][corner]) +
+                   Z[c][l][n] * std::abs(dot(dv, Sn));
       }
     }
   }
@@ -219,27 +224,56 @@ CellThermo cell_thermo(const HydroState& s,
   return t;
 }
 
+CornerState first_order_corners(const HydroState& s, const CellThermo& thermo) {
+  const Index num_cells = s.mesh.num_cells();
+  CornerState corners;
+  corners.pressure.resize(num_cells);
+  corners.velocity.resize(num_cells);
+  for (Index c = 0; c < num_cells; ++c) {
+    corners.pressure[c].fill(thermo.pressure[c]);
+    corners.velocity[c].fill(cell_velocity(s, c));
+  }
+  return corners;
+}
+
 std::vector<CornerValues> corner_impedances(const HydroState& s,
                                             const std::vector<CellFaceVectors>& faces,
                                             const CellThermo& thermo,
                                             const std::vector<Vec3>& node_velocity) {
-  return scaled_impedances(s, faces, thermo, node_velocity, 1.0);
+  return corner_impedances(s, faces, thermo, first_order_corners(s, thermo),
+                           node_velocity);
+}
+
+std::vector<CornerValues> corner_impedances(const HydroState& s,
+                                            const std::vector<CellFaceVectors>& faces,
+                                            const CellThermo& thermo,
+                                            const CornerState& corners,
+                                            const std::vector<Vec3>& node_velocity) {
+  return scaled_impedances(s, faces, thermo, corners, node_velocity, 1.0);
 }
 
 NodalSystem assemble_nodal_system(const HydroState& s,
                                   const std::vector<CellFaceVectors>& faces,
                                   const CellThermo& thermo,
                                   const std::vector<CornerValues>& impedance) {
+  return assemble_nodal_system(s, faces, first_order_corners(s, thermo), impedance);
+}
+
+NodalSystem assemble_nodal_system(const HydroState& s,
+                                  const std::vector<CellFaceVectors>& faces,
+                                  const CornerState& corners,
+                                  const std::vector<CornerValues>& impedance) {
   const mesh::Mesh& m = s.mesh;
   NodalSystem sys;
   sys.M.assign(m.num_nodes(), Mat3{});
   sys.B.assign(m.num_nodes(), Vec3{});
   for (Index c = 0; c < m.num_cells(); ++c) {
-    const double P = thermo.pressure[c];
-    const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
-        const Index p = m.cell_nodes[c][kHexFaceNodes[l][n]];
+        const int corner = kHexFaceNodes[l][n];
+        const double P = corners.pressure[c][corner];
+        const Vec3& v = corners.velocity[c][corner];
+        const Index p = m.cell_nodes[c][corner];
         const double Z = impedance[c][l][n];
         // With Sn = S_pf n_pf: S_pf (n x n) = (Sn x Sn) / S_pf.
         const Vec3& Sn = faces[c][l][n];
@@ -260,23 +294,32 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
                                    const std::vector<CellFaceVectors>& faces,
                                    const CellThermo& thermo,
                                    const bc::BoundarySet& bcs) {
+  return nodal_velocities(s, faces, thermo, first_order_corners(s, thermo), bcs);
+}
+
+std::vector<Vec3> nodal_velocities(const HydroState& s,
+                                   const std::vector<CellFaceVectors>& faces,
+                                   const CellThermo& thermo,
+                                   const CornerState& corners,
+                                   const bc::BoundarySet& bcs) {
   // Per node, Eq. 4 reads R_p(V_p) = M_p V_p - B_p
   //   = sum_c sum_f S_pf [Z_cfp s_cfp - P_c] n_pf (+ outflow terms) = 0,
-  // with s_cfp = (V_p - V_c) . n_pf, up to a wall-normal reaction. Each term is
+  // with s_cfp = (V_p - V_c) . n_pf, up to a wall-normal reaction (P_c, V_c
+  // being the corner values, so P~_c(x_p), V~_c(x_p) at second order). Each term is
   // the gradient of the convex rho (a s^2/2 + Gamma |s|^3/3) - P s, and the
   // Jacobian is J_p = sum S_pf rho_c (a_c + 2 Gamma_c |s_cfp|) (n_pf x n_pf).
   const mesh::Mesh& m = s.mesh;
   const auto constraints = bc::wall_constraints(m, bcs);
   const auto& walls = constraints.normals;
 
-  // Initial guess: the mean velocity of the cells at each node, moved onto its
-  // walls (normal part as prescribed). The Newton steps are tangent to the
-  // walls, so every iterate satisfies them.
+  // Initial guess: the mean corner velocity of the cells at each node, moved
+  // onto its walls (normal part as prescribed). The Newton steps are tangent
+  // to the walls, so every iterate satisfies them.
   std::vector<Vec3> V(m.num_nodes(), Vec3{});
   std::vector<int> count(m.num_nodes(), 0);
   for (Index c = 0; c < m.num_cells(); ++c) {
-    const Vec3 v = cell_velocity(s, c);
     for (int k = 0; k < kNodesPerCell; ++k) {
+      const Vec3& v = corners.velocity[c][k];
       const Index p = m.cell_nodes[c][k];
       for (int d = 0; d < 3; ++d) V[p][d] += v[d];
       ++count[p];
@@ -295,8 +338,8 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
   }
 
   for (int iteration = 0; iteration < kMaxNewtonIterations; ++iteration) {
-    const auto Z = scaled_impedances(s, faces, thermo, V, 1.0);
-    NodalSystem system = assemble_nodal_system(s, faces, thermo, Z);
+    const auto Z = scaled_impedances(s, faces, thermo, corners, V, 1.0);
+    NodalSystem system = assemble_nodal_system(s, faces, corners, Z);
     bc::apply_pressure_bcs(m, bcs, thermo.pressure, system.B);
     std::vector<Vec3> R(m.num_nodes());
     double residual = 0.0;
@@ -306,12 +349,12 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
       R[p] = tangential(r, walls[p]);
       residual = std::max(residual, std::sqrt(dot(R[p], R[p])));
     }
-    if (residual <= kNewtonTolerance * nodal_flux_scale(s, faces, thermo, Z, V)) {
+    if (residual <= kNewtonTolerance * nodal_flux_scale(s, faces, corners, Z, V)) {
       return V;
     }
 
     const auto J = assemble_nodal_system(
-        s, faces, thermo, scaled_impedances(s, faces, thermo, V, 2.0)).M;
+        s, faces, corners, scaled_impedances(s, faces, thermo, corners, V, 2.0)).M;
     double max_step = 0.0;
     for (Index p = 0; p < m.num_nodes(); ++p) {
       Mat3 A = J[p];
@@ -333,14 +376,24 @@ std::vector<CornerValues> nodal_pressures(const HydroState& s,
                                           const CellThermo& thermo,
                                           const std::vector<CornerValues>& impedance,
                                           const std::vector<Vec3>& node_velocity) {
+  return nodal_pressures(s, faces, first_order_corners(s, thermo), impedance,
+                         node_velocity);
+}
+
+std::vector<CornerValues> nodal_pressures(const HydroState& s,
+                                          const std::vector<CellFaceVectors>& faces,
+                                          const CornerState& corners,
+                                          const std::vector<CornerValues>& impedance,
+                                          const std::vector<Vec3>& node_velocity) {
   const mesh::Mesh& m = s.mesh;
   std::vector<CornerValues> P_cfp(m.num_cells());
   for (Index c = 0; c < m.num_cells(); ++c) {
-    const double P = thermo.pressure[c];
-    const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
-        const Vec3& Vp = node_velocity[m.cell_nodes[c][kHexFaceNodes[l][n]]];
+        const int corner = kHexFaceNodes[l][n];
+        const double P = corners.pressure[c][corner];
+        const Vec3& v = corners.velocity[c][corner];
+        const Vec3& Vp = node_velocity[m.cell_nodes[c][corner]];
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
         const Vec3 dv = {v[0] - Vp[0], v[1] - Vp[1], v[2] - Vp[2]};
@@ -355,8 +408,16 @@ std::vector<std::array<Vec3, kNodesPerCell>> corner_forces(
     const HydroState& s, const std::vector<CellFaceVectors>& faces,
     const CellThermo& thermo, const std::vector<CornerValues>& impedance,
     const std::vector<Vec3>& node_velocity) {
+  return corner_forces(s, faces, first_order_corners(s, thermo), impedance,
+                       node_velocity);
+}
+
+std::vector<std::array<Vec3, kNodesPerCell>> corner_forces(
+    const HydroState& s, const std::vector<CellFaceVectors>& faces,
+    const CornerState& corners, const std::vector<CornerValues>& impedance,
+    const std::vector<Vec3>& node_velocity) {
   const mesh::Mesh& m = s.mesh;
-  const auto P_cfp = nodal_pressures(s, faces, thermo, impedance, node_velocity);
+  const auto P_cfp = nodal_pressures(s, faces, corners, impedance, node_velocity);
   std::vector<std::array<Vec3, kNodesPerCell>> F(m.num_cells());
   for (Index c = 0; c < m.num_cells(); ++c) {
     for (int l = 0; l < kFacesPerCell; ++l) {

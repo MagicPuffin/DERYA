@@ -31,4 +31,15 @@ CellGradients cell_gradients(const mesh::Mesh& m,
                              const std::vector<CornerValues>& nodal_pressure,
                              const std::vector<Vec3>& node_velocity);
 
+// Limited reconstruction at the cell's nodes (thesis Eq. 2.1, with the SP-V
+// factors of limiter.hpp):
+//   P~_c(x_p) = P_c + chi_c(P) (grad P)_c . (x_p - x_c),
+//   V~_c(x_p) = V_c + chi_c(V) (grad V)_c (x_p - x_c),
+// x_c = cell_centers, for the second-order nodal solve and corner forces.
+// Zero gradients or factors give exactly first_order_corners.
+CornerState reconstructed_corners(const HydroState& s, const CellThermo& thermo,
+                                  const CellGradients& gradients,
+                                  const std::vector<double>& pressure_limiter,
+                                  const std::vector<double>& velocity_limiter);
+
 }  // namespace hydro::lagrangian

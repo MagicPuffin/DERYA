@@ -107,6 +107,11 @@ stop and report rather than deciding to override it.
     replaced per corner by `P~_c(x_p)`, `V~_c(x_p)` in `B`, in Eq. 3 and in
     the corner forces. Our choice: the two-shock impedance's velocity jump
     is `s = (V_p - V~_c(x_p)) . n_pf` too (the thesis has the acoustic Z).
+    Our choice (Task 12): outflow boundaries keep the owner cell's `P_c` as
+    their prescribed pressure `P*`, not `P~_c(x_p)`; the boundary face then
+    sees the reconstruction's jump `P~_c(x_p) - P_c`. Irrelevant where the
+    state near the boundary is uniform (Sod); revisit if an outflow
+    boundary misbehaves at second order.
   - *Limiter: SP-V* as in the paper (Eqs. 7-8): Barth-Jespersen with
     controls on the cells sharing a node with c (`C(P(c))`, c included, no
     ghost cells at boundaries: our choice) and extrapolated values at c's

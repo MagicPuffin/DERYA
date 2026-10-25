@@ -296,16 +296,39 @@ Files: `src/hydro/` (limiter), `tests/unit/test_limiter.cpp`.
       the same chi (1D symmetry, the property the paper wants); the V_c = 0
       fallback
 
-## Task 12 — Second-order nodal solve and corner forces
-Files: `src/hydro/hydro.{hpp,cpp}`, `tests/unit/test_hydro.cpp`.
-- [ ] Reconstructed corner values P~_c(x_p), V~_c(x_p) (limited) used in
-      the assembly of Eq. 4 (thesis Eq. 2.43), in the two-shock Newton
-      solve (jump against V~_c(x_p)) and in Eq. 3 / the corner forces
-      (thesis Eq. 2.44)
-- [ ] Tests: zero gradients reproduce the first-order V_p and forces
-      exactly; a uniform flow still gives V_p = V_c; momentum and total
-      energy are still conserved in a closed box (conservation does not
-      depend on the reconstruction)
+## Task 12 — Second-order nodal solve and corner forces — ✅ DONE
+Files: `src/hydro/hydro.{hpp,cpp}`, `tests/unit/test_hydro.cpp`. Flagged:
+`src/hydro/gradients.{hpp,cpp}` (`reconstructed_corners` needs
+`CellGradients` and `cell_centers`, and `gradients.hpp` includes `hydro.hpp`).
+- [x] `CornerState`: P~_c(x_p), V~_c(x_p) per cell and local corner;
+      `first_order_corners()` (P_c, V_c) and `reconstructed_corners(s,
+      thermo, gradients, chi_P, chi_V)` (thesis Eq. 2.1, limited).
+      Overloads of `corner_impedances`, `assemble_nodal_system`,
+      `nodal_velocities`, `nodal_pressures` and `corner_forces` take one and
+      use it in B (thesis Eq. 2.43), in the two-shock jump (against
+      V~_c(x_p)), in the Newton initial guess and flux scale, and in Eq. 3 /
+      the corner forces (thesis Eq. 2.44). The old signatures are the
+      first-order case and delegate. Outflow boundaries keep P* = P_c
+      (`decisions.md`)
+- [x] Tests: reconstruction by hand on a box cell, zero factors/gradients
+      give `first_order_corners` exactly; P_cfp = P~_c(x_p) and Z = rho a
+      when V_p = V~_c(x_p); first-order corners reproduce V_p, Z, P_cfp and
+      the forces bit for bit (and nonzero ones change V_p); a uniform warm
+      flow through the full limited stage keeps V_p = V_c; a closed box
+      conserves mass, volume and energy to 1e-13 over 50 forward-Euler steps,
+      with unlimited arbitrary and with limited corner values, and the
+      corner forces balance at every node
+- [x] Sod, Noh and Saltzman dumps through `hydro_run` byte-identical to
+      before the task
+- Known limitation, left as is (agreed with Luca 2026-10-25, to keep
+  `order = 1` exact): a gas that is cold *and* uniform everywhere fails the
+  second-order Newton. SP-V limits velocity only along V_c, so round-off
+  (1e-16) differences in V~_c(x_p) pass through; the two-shock residual and
+  the global flux scale it is judged against are then both ~1e-33, a
+  degenerate root where Newton only halves its step. Adding rho_c |V~|^2
+  to the flux scale fixes it but changes first-order Sod at round-off
+  (<= 2e-13). Noh and Saltzman have a shock from the first step that sets
+  the scale; revisit if a real deck hits it
 
 ## Task 13 — Predictor-corrector step and the scheme option
 Files: `src/hydro/`, `src/io/deck.{hpp,cpp}`, `src/app/driver.cpp`,

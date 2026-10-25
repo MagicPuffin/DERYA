@@ -12,7 +12,9 @@
 
 #include "bc.hpp"
 #include "eos.hpp"
+#include "gradients.hpp"
 #include "hydro.hpp"
+#include "limiter.hpp"
 #include "mesh.hpp"
 
 using Catch::Matchers::WithinAbs;
@@ -20,20 +22,32 @@ using Catch::Matchers::WithinRel;
 using hydro::bc::Boundary;
 using hydro::bc::BoundarySet;
 using hydro::bc::BoundaryType;
+using hydro::bc::Mat3;
 using hydro::eos::IdealGasEOS;
+using hydro::lagrangian::CellFaceVectors;
+using hydro::lagrangian::CellGradients;
 using hydro::lagrangian::CellThermo;
+using hydro::lagrangian::CornerState;
 using hydro::lagrangian::HydroState;
 using hydro::lagrangian::Vec3;
 using hydro::lagrangian::assemble_nodal_system;
 using hydro::lagrangian::cell_face_vectors;
+using hydro::lagrangian::cell_gradients;
 using hydro::lagrangian::cell_thermo;
 using hydro::lagrangian::cell_volume;
 using hydro::lagrangian::corner_forces;
 using hydro::lagrangian::corner_impedances;
 using hydro::lagrangian::corner_vectors;
+using hydro::lagrangian::first_order_corners;
 using hydro::lagrangian::lagrangian_step;
 using hydro::lagrangian::make_state;
+using hydro::lagrangian::move_nodes;
+using hydro::lagrangian::nodal_pressures;
 using hydro::lagrangian::nodal_velocities;
+using hydro::lagrangian::pressure_limiters;
+using hydro::lagrangian::reconstructed_corners;
+using hydro::lagrangian::update_cells;
+using hydro::lagrangian::velocity_limiters;
 using hydro::mesh::Index;
 using hydro::mesh::kFacesPerCell;
 using hydro::mesh::kHexFaceNodes;
@@ -96,6 +110,63 @@ double total_energy(const HydroState& s) {
   double e = 0.0;
   for (Index c = 0; c < s.mesh.num_cells(); ++c) e += s.mass[c] * s.total_energy[c];
   return e;
+}
+
+// A smooth but non-uniform state on the distorted mesh.
+HydroState wavy_state() {
+  Mesh m = distorted_mesh();
+  const auto n = static_cast<std::size_t>(m.num_cells());
+  std::vector<double> rho(n), vx(n), vy(n), vz(n), eps(n);
+  for (std::size_t c = 0; c < n; ++c) {
+    rho[c] = 1.0 + 0.5 * std::sin(1.7 * c);
+    vx[c] = 0.3 * std::cos(2.3 * c);
+    vy[c] = -0.2 * std::sin(0.9 * c);
+    vz[c] = 0.1 * std::cos(1.1 * c);
+    eps[c] = 2.0 + std::cos(0.7 * c);
+  }
+  return make_state(std::move(m), rho, vx, vy, vz, eps);
+}
+
+// Arbitrary non-zero cell gradients, the same order of size as the state.
+CellGradients wavy_gradients(Index num_cells) {
+  CellGradients g;
+  g.pressure.resize(num_cells);
+  g.velocity.resize(num_cells);
+  for (Index c = 0; c < num_cells; ++c) {
+    for (int i = 0; i < 3; ++i) {
+      g.pressure[c][i] = 0.4 * std::sin(1.3 * c + 2.1 * i);
+      for (int j = 0; j < 3; ++j) {
+        g.velocity[c][i][j] = 0.2 * std::cos(0.7 * c + 1.9 * i + 0.6 * j);
+      }
+    }
+  }
+  return g;
+}
+
+// The limited corner values of one second-order stage (decisions.md): a
+// first-order solve, Green gradients from its nodal values, SP-V.
+CornerState limited_corners(const HydroState& s,
+                            const std::vector<CellFaceVectors>& faces,
+                            const CellThermo& t, const BoundarySet& bcs) {
+  const auto V = nodal_velocities(s, faces, t, bcs);
+  const auto P = nodal_pressures(s, faces, t, corner_impedances(s, faces, t, V), V);
+  const CellGradients g = cell_gradients(s.mesh, faces, P, V);
+  return reconstructed_corners(
+      s, t, g, pressure_limiters(s.mesh, t.pressure, g.pressure),
+      velocity_limiters(s.mesh, s.vel_x, s.vel_y, s.vel_z, g.velocity, g.pressure));
+}
+
+// Forward-Euler step with the second-order nodal solve and corner forces on
+// the given corner values (the predictor-corrector is Task 13).
+std::vector<Vec3> corner_state_step(HydroState& s, const BoundarySet& bcs,
+                                    const CornerState& corners,
+                                    const std::vector<CellFaceVectors>& faces,
+                                    const CellThermo& t, double dt) {
+  const auto V = nodal_velocities(s, faces, t, corners, bcs);
+  const auto Z = corner_impedances(s, faces, t, corners, V);
+  update_cells(s, corner_forces(s, faces, corners, Z, V), V, dt);
+  move_nodes(s.mesh, V, dt);
+  return V;
 }
 
 }  // namespace
@@ -562,4 +633,185 @@ TEST_CASE("lagrangian_step: planar Noh with a cold gas", "[hydro][integration]")
   }
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.025);
+}
+
+TEST_CASE("reconstructed_corners: limited linear extrapolation to the nodes",
+          "[hydro]") {
+  // Box cell [0,2]x[0,1]x[0,0.5]: x_c = (1, 0.5, 0.25), node 0 at the origin,
+  // node 6 at (2, 1, 0.5), so x_p - x_c = -/+(1, 0.5, 0.25).
+  StructuredMeshSpec spec;
+  spec.x_max = 2.0;
+  spec.y_max = 1.0;
+  spec.z_max = 0.5;
+  const IdealGasEOS eos(1.4);
+  const HydroState s = uniform_state(generate_structured_mesh(spec), 1.0,
+                                     {0.1, 0.2, 0.3}, 2.5);  // P_c = 1
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  CellGradients g;
+  g.pressure = {{1.0, 2.0, 4.0}};  // . (x_p - x_c) = -/+3
+  g.velocity = {Mat3{{{1.0, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 4.0}}}};
+  const CornerState r = reconstructed_corners(s, t, g, {0.5}, {0.25});
+  REQUIRE(s.mesh.cell_nodes[0][0] == 0);
+  CHECK_THAT(r.pressure[0][0], WithinAbs(1.0 - 1.5, 1e-15));
+  CHECK_THAT(r.pressure[0][6], WithinAbs(1.0 + 1.5, 1e-15));
+  check_vec(r.velocity[0][0], {0.1 - 0.25, 0.2 - 0.25, 0.3 - 0.25}, 1e-15);
+  check_vec(r.velocity[0][6], {0.1 + 0.25, 0.2 + 0.25, 0.3 + 0.25}, 1e-15);
+
+  // Zero factors or zero gradients give the first-order corners exactly.
+  const CornerState first = first_order_corners(s, t);
+  const CornerState unlimited_zero = reconstructed_corners(
+      s, t, CellGradients{{Vec3{}}, {Mat3{}}}, {1.0}, {1.0});
+  const CornerState limited_away = reconstructed_corners(s, t, g, {0.0}, {0.0});
+  for (const CornerState* c : {&unlimited_zero, &limited_away}) {
+    CHECK(c->pressure == first.pressure);
+    CHECK(c->velocity == first.velocity);
+  }
+}
+
+TEST_CASE("second-order solve: P_cfp = P~_c(x_p) when V_p = V~_c(x_p)", "[hydro]") {
+  // One cell, so each node has a single corner: with V_p equal to the corner
+  // velocity there is no jump, Z_cfp = rho_c a_c, and Eq. 2.44 leaves
+  // F_cp = P~_c(x_p) n_cp.
+  StructuredMeshSpec spec;
+  const IdealGasEOS eos(1.4);
+  HydroState s = uniform_state(generate_structured_mesh(spec), 1.0, {0.1, 0.2, 0.3}, 2.5);
+  s.mesh.node_x[6] += 0.2;  // a non-planar cell
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const CornerState r = reconstructed_corners(s, t, wavy_gradients(1), {1.0}, {1.0});
+  std::vector<Vec3> V(s.mesh.num_nodes());
+  for (int k = 0; k < kNodesPerCell; ++k) V[s.mesh.cell_nodes[0][k]] = r.velocity[0][k];
+
+  const auto Z = corner_impedances(s, faces, t, r, V);
+  const double rho_a = t.density[0] * t.sound_speed[0];
+  for (int l = 0; l < kFacesPerCell; ++l) {
+    for (int n = 0; n < kNodesPerFace; ++n) CHECK_THAT(Z[0][l][n], WithinRel(rho_a, 1e-14));
+  }
+  const auto F = corner_forces(s, faces, r, Z, V);
+  const auto n = corner_vectors(faces[0]);
+  for (int k = 0; k < kNodesPerCell; ++k) {
+    INFO("corner " << k);
+    const double P = r.pressure[0][k];
+    check_vec(F[0][k], {P * n[k][0], P * n[k][1], P * n[k][2]}, 1e-14);
+  }
+  // The first-order jump, against V_c, is not zero at these V_p.
+  const auto Z1 = corner_impedances(s, faces, t, V);
+  CHECK(Z1[0][0][0] > rho_a * (1.0 + 1e-3));
+}
+
+TEST_CASE("second-order solve: first-order corners reproduce first order exactly",
+          "[hydro]") {
+  // Zero gradients (or limiters) must leave the first-order scheme bit for
+  // bit: the order = 1 regression check of every v0.2 task.
+  const IdealGasEOS eos(1.4);
+  const HydroState s = wavy_state();
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const Index nc = s.mesh.num_cells();
+  const CornerState r = reconstructed_corners(
+      s, t, wavy_gradients(nc), std::vector<double>(nc, 0.0), std::vector<double>(nc, 0.0));
+
+  const auto V1 = nodal_velocities(s, faces, t, kSodBcs);
+  const auto V2 = nodal_velocities(s, faces, t, r, kSodBcs);
+  CHECK(V2 == V1);
+  const auto Z1 = corner_impedances(s, faces, t, V1);
+  const auto Z2 = corner_impedances(s, faces, t, r, V2);
+  CHECK(Z2 == Z1);
+  CHECK(corner_forces(s, faces, r, Z2, V2) == corner_forces(s, faces, t, Z1, V1));
+  CHECK(nodal_pressures(s, faces, r, Z2, V2) == nodal_pressures(s, faces, t, Z1, V1));
+
+  // ... and non-zero corner values do change the solution.
+  const CornerState unlimited = reconstructed_corners(
+      s, t, wavy_gradients(nc), std::vector<double>(nc, 1.0), std::vector<double>(nc, 1.0));
+  const auto V3 = nodal_velocities(s, faces, t, unlimited, kSodBcs);
+  double change = 0.0;
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    for (int d = 0; d < 3; ++d) change = std::max(change, std::abs(V3[p][d] - V1[p][d]));
+  }
+  CHECK(change > 1e-3);
+}
+
+TEST_CASE("second-order solve: uniform flow gives V_p = V_c", "[hydro]") {
+  // The full stage on a distorted mesh: first-order gradients vanish to
+  // round-off, so the corner values are V_c and P_c to round-off, and the
+  // solve keeps V_p = V_c. Warm gas only: in a cold gas that is uniform
+  // everywhere, the round-off left in V~_c(x_p) (SP-V limits only its part
+  // along V_c) makes the two-shock jumps ~1e-16 and the whole flux scale
+  // ~1e-33, and Newton does not converge on that degenerate root (see
+  // backlog, Task 12). Cold regions of real runs are judged against the
+  // fluxes elsewhere.
+  const IdealGasEOS eos(1.4);
+  const Vec3 v = {0.3, -0.5, 0.2};
+  const BoundarySet all_out = {kOut, kOut, kOut, kOut, kOut, kOut};
+  const HydroState s = uniform_state(distorted_mesh(), 1.0, v, 2.5);
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo t = cell_thermo(s, faces, eos);
+  const CornerState r = limited_corners(s, faces, t, all_out);
+  const auto V = nodal_velocities(s, faces, t, r, all_out);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    check_vec(V[p], v);
+  }
+}
+
+TEST_CASE("second-order solve: closed box conserves mass, volume and energy",
+          "[hydro]") {
+  // Conservation rests on the nodal balance (Eq. 4), whatever the corner
+  // values: the corner forces at a node sum to zero, or to a wall-normal
+  // reaction on a wall. Checked with unlimited, arbitrary corner values (the
+  // hardest case) and with the limited stage.
+  const IdealGasEOS eos(1.4);
+  for (const bool limited : {false, true}) {
+    INFO((limited ? "limited" : "unlimited"));
+    HydroState s = wavy_state();
+    const auto vx0 = s.vel_x;
+    const double e0 = total_energy(s);
+    const double v0 = total_volume(s.mesh);
+    const auto mass0 = s.mass;
+    const auto walls = hydro::bc::wall_normals(s.mesh, kClosedBox);
+    const Index nc = s.mesh.num_cells();
+
+    for (int step = 0; step < 50; ++step) {
+      const auto faces = cell_face_vectors(s.mesh);
+      const CellThermo t = cell_thermo(s, faces, eos);
+      const CornerState r =
+          limited ? limited_corners(s, faces, t, kClosedBox)
+                  : reconstructed_corners(s, t, wavy_gradients(nc),
+                                          std::vector<double>(nc, 1.0),
+                                          std::vector<double>(nc, 1.0));
+      if (step == 0) {
+        // Nodal balance: the tangential part of sum_c F_cp vanishes.
+        const auto V = nodal_velocities(s, faces, t, r, kClosedBox);
+        const auto F = corner_forces(s, faces, r, corner_impedances(s, faces, t, r, V), V);
+        std::vector<Vec3> sum(s.mesh.num_nodes(), Vec3{});
+        double scale = 0.0;
+        for (Index c = 0; c < nc; ++c) {
+          for (int k = 0; k < kNodesPerCell; ++k) {
+            for (int d = 0; d < 3; ++d) {
+              sum[s.mesh.cell_nodes[c][k]][d] += F[c][k][d];
+              scale = std::max(scale, std::abs(F[c][k][d]));
+            }
+          }
+        }
+        for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+          Vec3 r_p = sum[p];
+          for (const Vec3& w : walls[p]) {
+            const double rn = r_p[0] * w[0] + r_p[1] * w[1] + r_p[2] * w[2];
+            for (int d = 0; d < 3; ++d) r_p[d] -= rn * w[d];
+          }
+          INFO("node " << p);
+          check_vec(r_p, {0.0, 0.0, 0.0}, 1e-12 * scale);
+        }
+      }
+      corner_state_step(s, kClosedBox, r, faces, t, 0.005);
+    }
+
+    CHECK(s.mass == mass0);
+    CHECK_THAT(total_energy(s), WithinRel(e0, 1e-13));
+    CHECK_THAT(total_volume(s.mesh), WithinRel(v0, 1e-13));
+    double moved = 0.0;
+    for (Index c = 0; c < nc; ++c) moved = std::max(moved, std::abs(s.vel_x[c] - vx0[c]));
+    CHECK(moved > 1e-3);
+  }
 }

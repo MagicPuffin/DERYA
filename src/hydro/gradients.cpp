@@ -51,4 +51,32 @@ CellGradients cell_gradients(const mesh::Mesh& m,
   return g;
 }
 
+CornerState reconstructed_corners(const HydroState& s, const CellThermo& thermo,
+                                  const CellGradients& gradients,
+                                  const std::vector<double>& pressure_limiter,
+                                  const std::vector<double>& velocity_limiter) {
+  const mesh::Mesh& m = s.mesh;
+  const auto centers = cell_centers(m);
+  CornerState corners;
+  corners.pressure.resize(m.num_cells());
+  corners.velocity.resize(m.num_cells());
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Vec3& xc = centers[c];
+    const Vec3& gp = gradients.pressure[c];
+    const Mat3& gv = gradients.velocity[c];
+    const Vec3 v = {s.vel_x[c], s.vel_y[c], s.vel_z[c]};
+    for (int k = 0; k < kNodesPerCell; ++k) {
+      const Index p = m.cell_nodes[c][k];
+      const Vec3 dx = {m.node_x[p] - xc[0], m.node_y[p] - xc[1], m.node_z[p] - xc[2]};
+      const double dp = gp[0] * dx[0] + gp[1] * dx[1] + gp[2] * dx[2];
+      corners.pressure[c][k] = thermo.pressure[c] + pressure_limiter[c] * dp;
+      for (int i = 0; i < 3; ++i) {
+        const double dv = gv[i][0] * dx[0] + gv[i][1] * dx[1] + gv[i][2] * dx[2];
+        corners.velocity[c][k][i] = v[i] + velocity_limiter[c] * dv;
+      }
+    }
+  }
+  return corners;
+}
+
 }  // namespace hydro::lagrangian

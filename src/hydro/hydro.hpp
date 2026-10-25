@@ -69,6 +69,20 @@ CellThermo cell_thermo(const HydroState& s,
 using CornerValues =
     std::array<std::array<double, mesh::kNodesPerFace>, mesh::kFacesPerCell>;
 
+// The cell's pressure and velocity as seen from each of its corners, per cell
+// and local corner (cell_nodes order): P_c and V_c at first order, the
+// reconstructions P~_c(x_p) and V~_c(x_p) at second order (thesis Eqs.
+// 2.43-2.44; reconstructed_corners in gradients.hpp). The functions below
+// taking a CornerState use these values wherever the first-order scheme has
+// P_c and V_c; their overloads without one are first order.
+struct CornerState {
+  std::vector<std::array<double, mesh::kNodesPerCell>> pressure;
+  std::vector<std::array<Vec3, mesh::kNodesPerCell>> velocity;
+};
+
+// P_c and V_c at every corner of cell c.
+CornerState first_order_corners(const HydroState& s, const CellThermo& thermo);
+
 // Impedance of Eq. 3 per cell, face and node, in its two-shock (Dukowicz)
 // form rather than the paper's acoustic Z_c = rho_c a_c (see decisions.md):
 // Z_cfp = rho_c (a_c + Gamma_c |(V_p - V_c) . n_pf|). It stays positive in a
@@ -76,6 +90,13 @@ using CornerValues =
 std::vector<CornerValues> corner_impedances(const HydroState& s,
                                             const std::vector<CellFaceVectors>& faces,
                                             const CellThermo& thermo,
+                                            const std::vector<Vec3>& node_velocity);
+// Second order: the jump is s_cfp = (V_p - V~_c(x_p)) . n_pf (our choice, see
+// decisions.md).
+std::vector<CornerValues> corner_impedances(const HydroState& s,
+                                            const std::vector<CellFaceVectors>& faces,
+                                            const CellThermo& thermo,
+                                            const CornerState& corners,
                                             const std::vector<Vec3>& node_velocity);
 
 // Eq. 4, per node: M_p = sum_c sum_f S_pf Z_cfp (n_pf x n_pf) and
@@ -90,6 +111,11 @@ NodalSystem assemble_nodal_system(const HydroState& s,
                                   const std::vector<CellFaceVectors>& faces,
                                   const CellThermo& thermo,
                                   const std::vector<CornerValues>& impedance);
+// Second order (thesis Eq. 2.43): P~_c(x_p) and V~_c(x_p) in B_p.
+NodalSystem assemble_nodal_system(const HydroState& s,
+                                  const std::vector<CellFaceVectors>& faces,
+                                  const CornerState& corners,
+                                  const std::vector<CornerValues>& impedance);
 
 // Nodal velocities V_p solving Eq. 4 with the two-shock Z_cfp, subject to the
 // boundary conditions (outflow pressures in B, symmetry and piston walls on
@@ -103,6 +129,15 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
                                    const std::vector<CellFaceVectors>& faces,
                                    const CellThermo& thermo,
                                    const bc::BoundarySet& bcs);
+// Second order: the same solve with the corner values in B_p and in the
+// two-shock jump, from the mean of the corner velocities V~_c(x_p) at each
+// node. Outflow boundaries keep the owner cell's P_c as their prescribed
+// pressure.
+std::vector<Vec3> nodal_velocities(const HydroState& s,
+                                   const std::vector<CellFaceVectors>& faces,
+                                   const CellThermo& thermo,
+                                   const CornerState& corners,
+                                   const bc::BoundarySet& bcs);
 
 // Nodal pressures of Eq. 3, P_cfp = P_c + Z_cfp (V_c - V_p) . n_pf, per cell,
 // face and node (P_c on a degenerate face, S_pf = 0). At the V_p of a
@@ -113,12 +148,26 @@ std::vector<CornerValues> nodal_pressures(const HydroState& s,
                                           const CellThermo& thermo,
                                           const std::vector<CornerValues>& impedance,
                                           const std::vector<Vec3>& node_velocity);
+// Second order (thesis Eq. 2.44):
+// P_cfp = P~_c(x_p) + Z_cfp (V~_c(x_p) - V_p) . n_pf.
+std::vector<CornerValues> nodal_pressures(const HydroState& s,
+                                          const std::vector<CellFaceVectors>& faces,
+                                          const CornerState& corners,
+                                          const std::vector<CornerValues>& impedance,
+                                          const std::vector<Vec3>& node_velocity);
 
 // Corner forces F_cp = sum_{f in F(c,p)} S_pf P_cfp n_pf, per cell and local
 // corner, with the nodal pressures of Eq. 3 (nodal_pressures).
 std::vector<std::array<Vec3, mesh::kNodesPerCell>> corner_forces(
     const HydroState& s, const std::vector<CellFaceVectors>& faces,
     const CellThermo& thermo, const std::vector<CornerValues>& impedance,
+    const std::vector<Vec3>& node_velocity);
+// Second order: with the P_cfp of thesis Eq. 2.44. At the V_p of the
+// second-order nodal_velocities and Z at that V_p, the forces still balance
+// at every node, so momentum and energy stay conserved.
+std::vector<std::array<Vec3, mesh::kNodesPerCell>> corner_forces(
+    const HydroState& s, const std::vector<CellFaceVectors>& faces,
+    const CornerState& corners, const std::vector<CornerValues>& impedance,
     const std::vector<Vec3>& node_velocity);
 
 // Eq. 1, forward Euler: m_c dV_c = -dt sum_p F_cp and
