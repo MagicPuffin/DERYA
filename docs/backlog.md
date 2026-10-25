@@ -270,7 +270,7 @@ Files: `docs/decisions.md` ("Second-order extension (v0.2)"), this backlog,
 - [x] Smooth test problem: the Taylor-Green vortex, with the thesis's Table
       3.1(b) as reference numbers
 
-## Task 10 — Unlimited cell gradients (Eq. 6)
+## Task 10 — Unlimited cell gradients (Eq. 6) — ✅ DONE
 Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
 `tests/unit/test_gradients.cpp`, the test CMakeLists.
 - [x] `cell_centers()`: x_c = mean of the cell's nodes
@@ -282,7 +282,7 @@ Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
       sampled at the nodes gives its exact gradient on the distorted test
       mesh (thesis Appendix A.2); hand-computed values on a single box cell
 
-## Task 11 — Barth-Jespersen and the SP-V limiter (Eqs. 7-8)
+## Task 11 — Barth-Jespersen and the SP-V limiter (Eqs. 7-8) — ✅ DONE
 Files: `src/hydro/` (limiter), `tests/unit/test_limiter.cpp`.
 - [x] `barth_jespersen(controls, extrapolated, reference)` (Eq. 8; the
       preprint's `max(., 1)` in the `b_j < d` branch is a typo for `min`)
