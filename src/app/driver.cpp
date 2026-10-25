@@ -8,6 +8,7 @@
 
 #include "eos.hpp"
 #include "mesh.hpp"
+#include "scheme.hpp"
 #include "timestep.hpp"
 
 namespace hydro::app {
@@ -74,7 +75,8 @@ RunResult run(const io::Deck& deck, std::ostream& log) {
       dt_prev = dt;
       const bool last = dt >= deck.t_end - r.t;
       if (last) dt = deck.t_end - r.t;
-      node_velocity = lagrangian::lagrangian_step(r.state, deck.boundaries, eos, dt);
+      node_velocity = lagrangian::scheme_step(r.state, deck.boundaries, eos, dt,
+                                               deck.scheme);
       r.t = last ? deck.t_end : r.t + dt;
     } catch (const std::runtime_error& e) {
       std::ostringstream msg;

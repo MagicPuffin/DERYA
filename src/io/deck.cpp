@@ -198,6 +198,26 @@ void parse_time(const json& j, Deck& deck) {
   }
 }
 
+void parse_scheme(const json& j, Deck& deck) {
+  const std::string path = "scheme";
+  object(j, path, {"order", "limiter"});
+  if (j.contains("order")) {
+    const long order = integer(j.at("order"), path + ".order");
+    if (order != 1 && order != 2) fail(path + ".order", "must be 1 or 2");
+    deck.scheme.order = static_cast<int>(order);
+  }
+  if (j.contains("limiter")) {
+    const std::string limiter = string(j.at("limiter"), path + ".limiter");
+    if (limiter == "sp-v") {
+      deck.scheme.limiter = lagrangian::Limiter::SpV;
+    } else if (limiter == "none") {
+      deck.scheme.limiter = lagrangian::Limiter::None;
+    } else {
+      fail(path + ".limiter", "expected \"sp-v\" or \"none\"");
+    }
+  }
+}
+
 void parse_output(const json& j, Deck& deck) {
   const std::string path = "output";
   object(j, path, {"path", "log_every"});
@@ -217,13 +237,14 @@ Deck parse_deck(const std::string& json_text) {
   } catch (const json::parse_error& e) {
     throw std::runtime_error(std::string("deck: invalid JSON: ") + e.what());
   }
-  object(j, "deck", {"mesh", "eos", "boundaries", "initial", "time", "output"});
+  object(j, "deck", {"mesh", "eos", "boundaries", "initial", "time", "scheme", "output"});
   Deck deck;
   deck.mesh = parse_mesh(required(j, "deck", "mesh"), deck.perturbation);
   deck.gamma = parse_eos(required(j, "deck", "eos"));
   deck.boundaries = parse_boundaries(required(j, "deck", "boundaries"));
   parse_initial(required(j, "deck", "initial"), deck);
   parse_time(required(j, "deck", "time"), deck);
+  if (j.contains("scheme")) parse_scheme(j.at("scheme"), deck);
   if (j.contains("output")) parse_output(j.at("output"), deck);
   deck.warnings = thin_slab_warnings(deck.mesh);
   return deck;

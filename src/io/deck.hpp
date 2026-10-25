@@ -8,6 +8,7 @@
 
 #include "bc.hpp"
 #include "mesh.hpp"
+#include "scheme.hpp"
 #include "timestep.hpp"
 
 namespace hydro::io {
@@ -37,7 +38,7 @@ enum class MeshPerturbation { None, Saltzman };
 // Sod, Noh and Saltzman-type setups need: one structured mesh (optionally
 // perturbed), an ideal gas, one boundary per side, a background state
 // overridden by boxes in order (the last box containing a cell wins), and
-// time control.
+// time control, and the scheme (first order unless the deck asks for more).
 struct Deck {
   mesh::StructuredMeshSpec mesh;
   MeshPerturbation perturbation = MeshPerturbation::None;
@@ -49,6 +50,7 @@ struct Deck {
   // dt^0 = min(dt_initial, CFL); infinity means CFL alone.
   double dt_initial = std::numeric_limits<double>::infinity();
   timestep::TimestepParams timestep;
+  lagrangian::Scheme scheme;
   long max_steps = std::numeric_limits<long>::max();
   // Steps between progress lines in the log; 0 for none.
   long log_every = 100;

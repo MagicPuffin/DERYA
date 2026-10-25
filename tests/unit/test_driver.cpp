@@ -54,13 +54,14 @@ void check_rejected(const json& j, const std::string& message) {
   CHECK_THROWS_WITH(parse_deck(j.dump()), ContainsSubstring(message));
 }
 
-// Runs the hydro_run executable on decks/<name>.json and returns its dump.
-json run_hydro(const std::string& name) {
+// Runs the hydro_run executable on the deck file and returns its dump,
+// written to a temporary file named after `name`.
+json run_hydro_deck(const std::string& deck_path, const std::string& name) {
   const auto dump_path =
       (std::filesystem::temp_directory_path() / ("hydro_test_" + name + "_dump.json")).string();
   std::filesystem::remove(dump_path);
-  const std::string cmd = std::string("\"") + HYDRO_RUN_EXE + "\" \"" + DECK_DIR + "/" +
-                          name + ".json\" \"" + dump_path + "\" > /dev/null";
+  const std::string cmd = std::string("\"") + HYDRO_RUN_EXE + "\" \"" + deck_path +
+                          "\" \"" + dump_path + "\" > /dev/null";
   REQUIRE(std::system(cmd.c_str()) == 0);
   std::ifstream in(dump_path);
   REQUIRE(in);
@@ -68,6 +69,17 @@ json run_hydro(const std::string& name) {
   std::filesystem::remove(dump_path);
   CHECK(dump["format"] == "hydro-dump-0");
   return dump;
+}
+
+// Runs the hydro_run executable on decks/<name>.json and returns its dump.
+json run_hydro(const std::string& name) {
+  return run_hydro_deck(std::string(DECK_DIR) + "/" + name + ".json", name);
+}
+
+json read_deck_json(const std::string& name) {
+  std::ifstream in(std::string(DECK_DIR) + "/" + name + ".json");
+  REQUIRE(in);
+  return json::parse(in);
 }
 
 json read_oracle(const std::string& name) {
@@ -217,6 +229,34 @@ TEST_CASE("parse_deck: piston boundaries and the Saltzman perturbation", "[io]")
   check_rejected(bad, "mesh.perturbation");
 }
 
+TEST_CASE("parse_deck: the scheme block", "[io]") {
+  using hydro::lagrangian::Limiter;
+  const Deck d = parse_deck(small_deck().dump());
+  CHECK(d.scheme.order == 1);
+  CHECK(d.scheme.limiter == Limiter::SpV);
+
+  json j = small_deck();
+  j["scheme"] = {{"order", 2}, {"limiter", "none"}};
+  const Deck e = parse_deck(j.dump());
+  CHECK(e.scheme.order == 2);
+  CHECK(e.scheme.limiter == Limiter::None);
+  j["scheme"] = {{"order", 2}, {"limiter", "sp-v"}};
+  CHECK(parse_deck(j.dump()).scheme.limiter == Limiter::SpV);
+  j["scheme"] = json::object();
+  CHECK(parse_deck(j.dump()).scheme.order == 1);
+
+  j["scheme"] = {{"order", 3}};
+  check_rejected(j, "scheme.order: must be 1 or 2");
+  j["scheme"] = {{"order", 2.0}};
+  check_rejected(j, "scheme.order: expected an integer");
+  j["scheme"] = {{"limiter", "minmod"}};
+  check_rejected(j, "scheme.limiter");
+  j["scheme"] = {{"oder", 2}};
+  check_rejected(j, "scheme.oder: unknown key");
+  j["scheme"] = 2;
+  check_rejected(j, "scheme: expected an object");
+}
+
 TEST_CASE("thin_slab_warnings: a thin extrusion warns, cubic cells do not", "[io]") {
   // 100x1x1 cells of [0,1]x[0,0.01]x[0,0.005]: dx = 0.01, z only half as wide.
   StructuredMeshSpec thin{100, 1, 1, 0.0, 1.0, 0.0, 0.01, 0.0, 0.005};
@@ -307,6 +347,43 @@ TEST_CASE("hydro_run: Sod against the exact solution", "[app][integration]") {
   const double l1 = l1_density_error(dump, oracle, 0.02 * 0.02);
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.021);
+}
+
+TEST_CASE("hydro_run: Sod at second order stays 1D", "[app][integration]") {
+  // decks/sod.json with scheme.order = 2 (predictor-corrector, SP-V). The
+  // 100x2x2 slab's flow must stay exactly 1D: no transverse velocity and the
+  // same state in the 4 cells of every column. SP-V is built for this, but
+  // only if round-off V_c count as zero in its projection (limiter.hpp):
+  // with exact-zero tests the columns drifted 1e-4 apart. Measured: 212
+  // steps, L1 density error 0.0072 (first order: 0.0195).
+  json deck = read_deck_json("sod");
+  deck["scheme"] = {{"order", 2}};
+  const auto deck_path =
+      (std::filesystem::temp_directory_path() / "hydro_test_sod_order2.json").string();
+  {
+    std::ofstream out(deck_path);
+    out << deck.dump();
+  }
+  const json dump = run_hydro_deck(deck_path, "sod_order2");
+  std::filesystem::remove(deck_path);
+  CHECK(dump["t"].get<double>() == 0.2);
+  const auto& cells = dump["cells"];
+  const auto rho = cells["density"].get<std::vector<double>>();
+  const auto vx = cells["velocity_x"].get<std::vector<double>>();
+  const auto vy = cells["velocity_y"].get<std::vector<double>>();
+  const auto vz = cells["velocity_z"].get<std::vector<double>>();
+  REQUIRE(rho.size() == 400);
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    INFO("cell " << c);
+    CHECK_THAT(vy[c], WithinAbs(0.0, 1e-12));
+    CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+    // Cell (i, j, k) is c = i + 100 (j + 2 k); compare with (i, 0, 0).
+    CHECK_THAT(rho[c], WithinRel(rho[c % 100], 1e-12));
+    CHECK_THAT(vx[c], WithinAbs(vx[c % 100], 1e-12));
+  }
+  const double l1 = l1_density_error(dump, read_oracle("sod"), 0.02 * 0.02);
+  INFO("L1 density error " << l1);
+  CHECK(l1 < 0.008);
 }
 
 TEST_CASE("hydro_run: planar Noh against the exact solution", "[app][integration]") {

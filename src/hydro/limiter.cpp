@@ -61,6 +61,12 @@ double dot(const Vec3& a, const Vec3& b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
+// |V_c| below this fraction of the largest |V_c'| over C(P(c)) counts as
+// V_c = 0 in velocity_limiters. Measured on Sod at second order (100x2x2):
+// 1e-12 left the columns 2e-9 apart in density, 1e-10 1e-11 apart, 1e-8 at
+// round-off (1e-14); round-off in V_c accumulates over the steps.
+constexpr double kNegligibleSpeed = 1e-8;
+
 // a / |a|, or the zero vector for a = 0.
 Vec3 unit(const Vec3& a) {
   const double n = std::sqrt(dot(a, a));
@@ -103,7 +109,16 @@ std::vector<double> velocity_limiters(const mesh::Mesh& m,
   std::vector<double> extrapolated(kNodesPerCell);
   for (Index c = 0; c < m.num_cells(); ++c) {
     const Vec3 Vc = {vel_x[c], vel_y[c], vel_z[c]};
-    Vec3 u = unit(Vc);
+    // V_c below round-off of the surrounding speeds has no meaningful
+    // direction: mirror cells of a 1D flow would project on different
+    // round-off vectors and get different factors.
+    double speed = 0.0;
+    for (const Index d : nbr[c]) {
+      speed = std::max(speed, std::sqrt(vel_x[d] * vel_x[d] + vel_y[d] * vel_y[d] +
+                                        vel_z[d] * vel_z[d]));
+    }
+    Vec3 u{};
+    if (std::sqrt(dot(Vc, Vc)) > kNegligibleSpeed * speed) u = unit(Vc);
     if (u == Vec3{}) u = unit(pressure_gradient[c]);
     if (u == Vec3{}) u = {1.0, 0.0, 0.0};
 

@@ -194,6 +194,15 @@ TEST_CASE("velocity_limiters: projection direction and the V_c = 0 fallback",
     CHECK_THAT(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4],
                WithinAbs(2.0 / 3.0, 1e-14));
   }
+  SECTION("V_c at round-off counts as zero: along the pressure gradient") {
+    // A 1e-17 V_c (round-off next to neighbors moving at 0.1) has no
+    // meaningful direction; projected on it, nothing would be limited
+    // (factor 1), and a mirror cell with V_c = 0 exactly would get 2/3.
+    vx[4] = 1e-17;
+    grad_p[4] = {0.0, 1.0, 0.0};
+    CHECK_THAT(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4],
+               WithinAbs(2.0 / 3.0, 1e-14));
+  }
   SECTION("V_c = 0 and no pressure gradient: along e_x, nothing to limit") {
     CHECK(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4] == 1.0);
   }

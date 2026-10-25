@@ -20,8 +20,9 @@ struct RunResult {
 };
 
 // Runs the deck from t = 0 to t_end: dt from timestep::stable_dt (dt^0 =
-// min(dt_initial, CFL)), then lagrangian::lagrangian_step, the last step cut
-// to land on t_end. Writes a progress line every deck.log_every steps and a
+// min(dt_initial, CFL)), then a step of the deck's scheme
+// (lagrangian::scheme_step: first order or predictor-corrector), the last
+// step cut to land on t_end. Writes a progress line every deck.log_every steps and a
 // summary at the end to log. Throws std::runtime_error, with the step and
 // time, if a step fails (tangled mesh, negative internal energy, Newton
 // failure) or max_steps is reached before t_end.

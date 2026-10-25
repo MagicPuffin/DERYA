@@ -116,14 +116,25 @@ stop and report rather than deciding to override it.
     controls on the cells sharing a node with c (`C(P(c))`, c included, no
     ghost cells at boundaries: our choice) and extrapolated values at c's
     own nodes; velocity limited as a whole by one factor, from its
-    projection on `V_c/|V_c|`. Our choice for `V_c = 0` exactly: project on
-    the pressure-gradient direction, else `e_x` (the thesis SP rule).
+    projection on `V_c/|V_c|`. Our choice for `V_c = 0`: project on the
+    pressure-gradient direction, else `e_x` (the thesis SP rule). Changed
+    in Task 13 from "exactly 0" to "`|V_c|` <= 1e-8 of the largest `|V_c'|`
+    over `C(P(c))`": at rest ahead of a wave, mirror cells of a 1D flow
+    hold V_c = 0 in one and a 1e-17 round-off vector in the other, which
+    projects on an arbitrary direction. On Sod at second order the factors
+    then differed by up to 1 between mirror cells and the columns drifted
+    1e-4 apart (v_y 2e-4); 1e-12 left 2e-9, 1e-8 leaves round-off. The
+    pressure-gradient fallback has the same exact-zero test; no run has
+    needed a tolerance there yet.
   - *Time integration: predictor-corrector* (thesis Sec. 2.6.1, Eqs.
     2.42-2.49, alpha = 1): an Euler predictor to state (1), then the
     corrector averages the predictor's and its own fluxes and nodal
     velocities. Each stage = first-order solve, gradients, SP-V,
     second-order solve, so ~4 nodal solves per step (~4x the first-order
-    cost). dt is computed once per step, before the predictor. The thesis's
+    cost; measured ~4.5x on Sod and Noh). dt is computed once per step,
+    before the predictor (the thesis computes it inside the predictor,
+    after the nodal solve); the step hands the timestep controller the
+    mean nodal velocity the mesh moved with. The thesis's
     GRP alternative (Sec. 2.6.2) is cheaper and less dissipative but needs
     time derivatives of the nodal velocities and face vectors; deferred
     until cost matters.

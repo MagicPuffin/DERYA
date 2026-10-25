@@ -16,6 +16,7 @@
 #include "hydro.hpp"
 #include "limiter.hpp"
 #include "mesh.hpp"
+#include "scheme.hpp"
 
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
@@ -29,6 +30,9 @@ using hydro::lagrangian::CellGradients;
 using hydro::lagrangian::CellThermo;
 using hydro::lagrangian::CornerState;
 using hydro::lagrangian::HydroState;
+using hydro::lagrangian::Limiter;
+using hydro::lagrangian::Scheme;
+using hydro::lagrangian::StageFluxes;
 using hydro::lagrangian::Vec3;
 using hydro::lagrangian::assemble_nodal_system;
 using hydro::lagrangian::cell_face_vectors;
@@ -44,8 +48,11 @@ using hydro::lagrangian::make_state;
 using hydro::lagrangian::move_nodes;
 using hydro::lagrangian::nodal_pressures;
 using hydro::lagrangian::nodal_velocities;
+using hydro::lagrangian::predictor_corrector_step;
 using hydro::lagrangian::pressure_limiters;
 using hydro::lagrangian::reconstructed_corners;
+using hydro::lagrangian::scheme_step;
+using hydro::lagrangian::second_order_fluxes;
 using hydro::lagrangian::update_cells;
 using hydro::lagrangian::velocity_limiters;
 using hydro::mesh::Index;
@@ -106,6 +113,27 @@ double total_volume(const Mesh& m) {
   return v;
 }
 
+Vec3 total_momentum(const HydroState& s) {
+  Vec3 p = {0.0, 0.0, 0.0};
+  for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+    p[0] += s.mass[c] * s.vel_x[c];
+    p[1] += s.mass[c] * s.vel_y[c];
+    p[2] += s.mass[c] * s.vel_z[c];
+  }
+  return p;
+}
+
+// The cell and node data of two states are bit for bit the same.
+void check_identical(const HydroState& a, const HydroState& b) {
+  CHECK(a.vel_x == b.vel_x);
+  CHECK(a.vel_y == b.vel_y);
+  CHECK(a.vel_z == b.vel_z);
+  CHECK(a.total_energy == b.total_energy);
+  CHECK(a.mesh.node_x == b.mesh.node_x);
+  CHECK(a.mesh.node_y == b.mesh.node_y);
+  CHECK(a.mesh.node_z == b.mesh.node_z);
+}
+
 double total_energy(const HydroState& s) {
   double e = 0.0;
   for (Index c = 0; c < s.mesh.num_cells(); ++c) e += s.mass[c] * s.total_energy[c];
@@ -157,7 +185,7 @@ CornerState limited_corners(const HydroState& s,
 }
 
 // Forward-Euler step with the second-order nodal solve and corner forces on
-// the given corner values (the predictor-corrector is Task 13).
+// the given corner values.
 std::vector<Vec3> corner_state_step(HydroState& s, const BoundarySet& bcs,
                                     const CornerState& corners,
                                     const std::vector<CellFaceVectors>& faces,
@@ -813,5 +841,163 @@ TEST_CASE("second-order solve: closed box conserves mass, volume and energy",
     double moved = 0.0;
     for (Index c = 0; c < nc; ++c) moved = std::max(moved, std::abs(s.vel_x[c] - vx0[c]));
     CHECK(moved > 1e-3);
+  }
+}
+
+TEST_CASE("scheme_step: order 1 is lagrangian_step, bit for bit", "[hydro]") {
+  const IdealGasEOS eos(1.4);
+  HydroState a = wavy_state();
+  HydroState b = a;
+  for (int step = 0; step < 5; ++step) {
+    const auto Va = lagrangian_step(a, kClosedBox, eos, 0.005);
+    const auto Vb = scheme_step(b, kClosedBox, eos, 0.005, Scheme{});
+    CHECK(Va == Vb);
+  }
+  check_identical(a, b);
+  CHECK(Scheme{}.order == 1);
+  HydroState c = a;
+  CHECK_THROWS_AS(scheme_step(c, kClosedBox, eos, 0.005, Scheme{3, Limiter::SpV}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("predictor_corrector_step: thesis Eqs. 2.45-2.49", "[hydro]") {
+  // The predictor is a forward-Euler step with the fluxes of s^n; the
+  // corrector starts again from s^n and applies each stage's fluxes over
+  // dt / 2: nodes move with the mean V_p, cells with the mean forces and work.
+  const IdealGasEOS eos(1.4);
+  const double dt = 0.01;
+  for (const Limiter limiter : {Limiter::SpV, Limiter::None}) {
+    INFO((limiter == Limiter::SpV ? "sp-v" : "none"));
+    const HydroState s0 = wavy_state();
+    HydroState s = s0;
+    const auto V = predictor_corrector_step(s, kClosedBox, eos, dt, limiter);
+
+    const StageFluxes f0 = second_order_fluxes(s0, kClosedBox, eos, limiter);
+    HydroState predicted = s0;
+    update_cells(predicted, f0.forces, f0.node_velocity, dt);
+    move_nodes(predicted.mesh, f0.node_velocity, dt);
+    const StageFluxes f1 = second_order_fluxes(predicted, kClosedBox, eos, limiter);
+
+    const Index nc = s0.mesh.num_cells();
+    for (Index c = 0; c < nc; ++c) {
+      INFO("cell " << c);
+      Vec3 force = {0.0, 0.0, 0.0};
+      double work = 0.0;
+      for (int k = 0; k < kNodesPerCell; ++k) {
+        const Index p = s0.mesh.cell_nodes[c][k];
+        for (int d = 0; d < 3; ++d) {
+          force[d] += 0.5 * (f0.forces[c][k][d] + f1.forces[c][k][d]);
+          work += 0.5 * (f0.forces[c][k][d] * f0.node_velocity[p][d] +
+                         f1.forces[c][k][d] * f1.node_velocity[p][d]);
+        }
+      }
+      const double scale = dt / s0.mass[c];
+      CHECK_THAT(s.vel_x[c], WithinAbs(s0.vel_x[c] - scale * force[0], 1e-14));
+      CHECK_THAT(s.vel_y[c], WithinAbs(s0.vel_y[c] - scale * force[1], 1e-14));
+      CHECK_THAT(s.vel_z[c], WithinAbs(s0.vel_z[c] - scale * force[2], 1e-14));
+      CHECK_THAT(s.total_energy[c], WithinAbs(s0.total_energy[c] - scale * work, 1e-14));
+    }
+    for (Index p = 0; p < s0.mesh.num_nodes(); ++p) {
+      INFO("node " << p);
+      Vec3 mean;
+      for (int d = 0; d < 3; ++d) {
+        mean[d] = 0.5 * (f0.node_velocity[p][d] + f1.node_velocity[p][d]);
+      }
+      CHECK(V[p] == mean);
+      check_vec({s.mesh.node_x[p], s.mesh.node_y[p], s.mesh.node_z[p]},
+                {s0.mesh.node_x[p] + dt * mean[0], s0.mesh.node_y[p] + dt * mean[1],
+                 s0.mesh.node_z[p] + dt * mean[2]},
+                1e-15);
+    }
+    // The stages differ, so the corrector is not the predictor again.
+    double differ = 0.0;
+    for (Index p = 0; p < s0.mesh.num_nodes(); ++p) {
+      for (int d = 0; d < 3; ++d) {
+        differ = std::max(differ, std::abs(f1.node_velocity[p][d] - f0.node_velocity[p][d]));
+      }
+    }
+    CHECK(differ > 1e-3);
+  }
+}
+
+TEST_CASE("predictor_corrector_step: closed box conserves mass, momentum, energy",
+          "[hydro]") {
+  // Each stage's corner forces balance at every interior node and reduce to
+  // a wall-normal reaction, doing no work, on the walls (Task 12), so the
+  // mean of two stages does too. In a closed box the walls push, so total
+  // momentum changes, but only by the wall nodes' impulse.
+  const IdealGasEOS eos(1.4);
+  const double dt = 0.005;
+  for (const Limiter limiter : {Limiter::SpV, Limiter::None}) {
+    INFO((limiter == Limiter::SpV ? "sp-v" : "none"));
+    HydroState s = wavy_state();
+    const auto vx0 = s.vel_x;
+    const double e0 = total_energy(s);
+    const double v0 = total_volume(s.mesh);
+    const auto mass0 = s.mass;
+    const auto walls = hydro::bc::wall_normals(s.mesh, kClosedBox);
+
+    // Momentum over the first step: the impulse of the forces at wall nodes.
+    {
+      const StageFluxes f0 = second_order_fluxes(s, kClosedBox, eos, limiter);
+      HydroState predicted = s;
+      update_cells(predicted, f0.forces, f0.node_velocity, dt);
+      move_nodes(predicted.mesh, f0.node_velocity, dt);
+      const StageFluxes f1 = second_order_fluxes(predicted, kClosedBox, eos, limiter);
+      Vec3 impulse = {0.0, 0.0, 0.0};
+      double scale = 0.0;
+      for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+        for (int k = 0; k < kNodesPerCell; ++k) {
+          if (walls[s.mesh.cell_nodes[c][k]].empty()) continue;
+          for (int d = 0; d < 3; ++d) {
+            impulse[d] -= 0.5 * dt * (f0.forces[c][k][d] + f1.forces[c][k][d]);
+            scale = std::max(scale, dt * std::abs(f0.forces[c][k][d]));
+          }
+        }
+      }
+      const Vec3 p0 = total_momentum(s);
+      HydroState stepped = s;
+      predictor_corrector_step(stepped, kClosedBox, eos, dt, limiter);
+      const Vec3 p1 = total_momentum(stepped);
+      check_vec({p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]}, impulse, 1e-13 * scale);
+    }
+
+    for (int step = 0; step < 50; ++step) {
+      predictor_corrector_step(s, kClosedBox, eos, dt, limiter);
+    }
+    CHECK(s.mass == mass0);
+    CHECK_THAT(total_energy(s), WithinRel(e0, 1e-13));
+    CHECK_THAT(total_volume(s.mesh), WithinRel(v0, 1e-13));
+    double moved = 0.0;
+    for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+      moved = std::max(moved, std::abs(s.vel_x[c] - vx0[c]));
+    }
+    CHECK(moved > 1e-3);
+  }
+}
+
+TEST_CASE("predictor_corrector_step: uniform flow stays uniform", "[hydro]") {
+  // Warm uniform flow through all-outflow boundaries on the distorted mesh:
+  // every stage keeps V_p = V_c, so the mesh translates rigidly.
+  const IdealGasEOS eos(1.4);
+  const Vec3 v = {0.3, -0.5, 0.2};
+  const BoundarySet all_out = {kOut, kOut, kOut, kOut, kOut, kOut};
+  HydroState s = uniform_state(distorted_mesh(), 1.0, v, 2.5);
+  const Mesh initial = s.mesh;
+  const double dt = 0.01;
+  for (int step = 0; step < 5; ++step) {
+    const auto V = predictor_corrector_step(s, all_out, eos, dt, Limiter::SpV);
+    for (Index p = 0; p < s.mesh.num_nodes(); ++p) check_vec(V[p], v);
+  }
+  for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+    INFO("cell " << c);
+    check_vec({s.vel_x[c], s.vel_y[c], s.vel_z[c]}, v);
+    CHECK_THAT(s.total_energy[c], WithinRel(2.5 + 0.5 * (0.09 + 0.25 + 0.04), 1e-13));
+  }
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    check_vec({s.mesh.node_x[p], s.mesh.node_y[p], s.mesh.node_z[p]},
+              {initial.node_x[p] + 0.05 * v[0], initial.node_y[p] + 0.05 * v[1],
+               initial.node_z[p] + 0.05 * v[2]});
   }
 }

@@ -16,8 +16,9 @@ Fusion deliverable.
 
 **v0.1 done** (first-order Lagrangian hydro, no AMR): Sod, planar Noh and
 the Saltzman piston, run through the `hydro_run` driver, match their exact
-solutions at one resolution. Next is v0.2, second-order reconstruction,
-whose backlog is still to be written.
+solutions at one resolution. **v0.2 in progress** (second-order extension,
+paper Sec. 2.3): the scheme runs and is selectable per deck, but has not yet
+passed the v0.2 gate.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -46,6 +47,12 @@ whose backlog is still to be written.
   solution in 211 steps, `decks/noh.json` 0.0194 in 856 steps, and
   `decks/saltzman.json` 0.0454 in 1052 steps. `scripts/plot_comparison.py` plots a dump against
   the exact solution. Formats: [docs/deck_format.md](docs/deck_format.md)
+- Second-order scheme, selected with `"scheme": {"order": 2}` in a deck
+  (experimental, first order stays the default): Green-formula gradients,
+  the SP-V limiter (or none) and a predictor-corrector step, ~4.5x the cost
+  of first order. Sod on the same slab: L1 density error 0.0072 (first
+  order: 0.0195), flow still exactly 1D. Saltzman does not yet run at
+  second order (see [docs/backlog.md](docs/backlog.md), Task 15)
 
 ## Out of scope for v1.0
 

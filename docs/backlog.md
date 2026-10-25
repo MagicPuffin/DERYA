@@ -330,21 +330,42 @@ Files: `src/hydro/hydro.{hpp,cpp}`, `tests/unit/test_hydro.cpp`. Flagged:
   (<= 2e-13). Noh and Saltzman have a shock from the first step that sets
   the scale; revisit if a real deck hits it
 
-## Task 13 — Predictor-corrector step and the scheme option
-Files: `src/hydro/`, `src/io/deck.{hpp,cpp}`, `src/app/driver.cpp`,
-`docs/deck_format.md`, tests.
-- [ ] `lagrangian_step_2()` (or an order argument): thesis Eqs. 2.42-2.49.
-      Each stage: first-order solve, gradients, SP-V, second-order solve;
-      the corrector moves nodes with the mean of the two stages' V_p and
-      updates cells with the mean of their fluxes. dt computed once per
-      step, before the predictor
-- [ ] Deck keys `scheme.order` (1 or 2, default 1 until v0.2 is accepted)
-      and `scheme.limiter` (`"sp-v"` or `"none"`, the latter for smooth
-      convergence tests)
-- [ ] Tests: `order = 1` decks give results identical to today's;
-      `order = 2` conserves mass, momentum and energy to round-off in a
-      closed box; Sod at `order = 2` stays exactly 1D on the slab
-- Expected cost: ~4 nodal solves per step, ~4x first order
+## Task 13 — Predictor-corrector step and the scheme option — ✅ DONE
+Files: new `src/hydro/scheme.{hpp,cpp}`, `src/hydro/CMakeLists.txt`,
+`src/io/deck.{hpp,cpp}`, `src/app/driver.{hpp,cpp}`, `docs/deck_format.md`,
+`tests/unit/test_{hydro,driver,limiter}.cpp`. Flagged:
+`src/hydro/limiter.{hpp,cpp}` (round-off V_c in SP-V, below), `README.md`.
+- [x] `second_order_fluxes(s, bcs, eos, limiter)`: one stage (first-order
+      solve, gradients, SP-V or none, second-order solve, corner forces at
+      the converged V_p). `predictor_corrector_step(s, bcs, eos, dt,
+      limiter)`: thesis Eqs. 2.45-2.49, the corrector applying each stage's
+      fluxes and V_p over dt / 2 from s^n; returns the mean V_p for the
+      volume criterion. `scheme_step(..., Scheme{order, limiter})`
+      dispatches; order 1 is `lagrangian_step`. dt once per step, before
+      the predictor
+- [x] Deck block `scheme`: `order` (1 or 2, default 1) and `limiter`
+      (`"sp-v"`, default, or `"none"`), in `docs/deck_format.md`
+- [x] Tests: `scheme_step` at order 1 is `lagrangian_step` bit for bit;
+      the step equals the two stages composed by hand (red when the
+      corrector uses only one stage); a closed box conserves mass, energy
+      and volume to 1e-13 over 50 steps with both limiters, and its
+      momentum changes by exactly the wall nodes' impulse; warm uniform flow
+      stays uniform and the mesh translates; deck parsing and 5 rejections;
+      Sod at order 2 through `hydro_run` stays exactly 1D (transverse
+      velocity < 1e-12, all 4 cells of a column equal to 1e-12), 212 steps,
+      L1 density error 0.0072 (first order 0.0195, bound 0.008)
+- [x] Sod, Noh and Saltzman dumps at order 1 byte-identical to before
+- Found on the way, fixed (flagged, `decisions.md`): Sod at order 2 was
+  *not* 1D at first, columns 1.4e-4 apart in density. SP-V's "V_c = 0
+  exactly" fallback is decided by round-off: at rest ahead of a wave one
+  mirror cell has V_c = 0 and projects on grad P (chi_V = 0, correct), the
+  other has a 1e-17 V_c and projects on its arbitrary direction (chi_V
+  ~1). V_c now counts as zero below 1e-8 of the largest |V_c'| over
+  C(P(c)). Test: a 1e-17 V_c falls back like V_c = 0 (red before). Each
+  limiter alone, or none, had stayed 1D
+- Measured, not tested (Task 15 material): Noh at order 2, 999 steps, L1
+  0.0156 (first order 0.0194), plateau peak rho 4.81 vs 4.19 at first order.
+  Cost ~4.5x first order (Sod 3.5 s vs 0.74 s optimized)
 
 ## Task 14 — Smooth convergence: the Taylor-Green vortex
 Files: `src/hydro/` (energy source), deck and driver support, new decks,
@@ -370,6 +391,14 @@ Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.
       `make_report.py` (roadmap DoD item 6)
 - [ ] Acceptance per the agreed gate: second-order errors below first-order
       ones at every resolution, rates documented in `vv_catalog.md`
+- [ ] Known from Task 13: `decks/saltzman.json` at order 2 fails at step
+      537 (t = 0.289): `cell_thermo` throws on eps = -2.1e-14 in the
+      predicted state of cell 940, cold gas ahead of the shock (row 9,
+      x ~ 0.41) holding round-off precursors (eps ~1e-14, kinetic energy
+      4e-20). The negative-eps tolerance is relative to the cell's own
+      kinetic energy, ~0 there; one relative to the flow's energy scale
+      would clamp it. Also check the order-2 Noh plateau overshoot (peak
+      rho 4.81)
 - [ ] Risk (decisions.md): the thesis's SP limiter failed on Noh; if SP-V
       oscillates there too, the MM limiter (thesis Sec. 2.4) is the
       fallback. Saltzman at second order is where a limiter problem would

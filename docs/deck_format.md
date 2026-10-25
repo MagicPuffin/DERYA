@@ -28,6 +28,8 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 | `time.dt_initial` | number > 0 | no | `dt^0 = min(dt_initial, CFL)`. Default: CFL alone. A cold gas needs it |
 | `time.cfl`, `time.volume_fraction`, `time.max_growth`, `time.dt_max` | numbers | no | Timestep controller (`decisions.md`, "Lagrangian timestep"). Defaults 0.25, 0.1, 1.01, ∞ |
 | `time.max_steps` | integer ≥ 1 | no | Fail if `t_end` is not reached in this many steps. Default: no limit |
+| `scheme.order` | integer, 1 or 2 | no | 1: first-order step (paper Sec. 2.2). 2: second order (paper Sec. 2.3): reconstructed pressure and velocity with a predictor-corrector step, about 4.5 times the cost. Default 1 |
+| `scheme.limiter` | string | no | Order 2 only: `"sp-v"` (paper Eqs. 7-8) or `"none"` (unlimited gradients, for convergence tests on smooth flows; nothing limits them at shocks). Default `"sp-v"` |
 | `output.path` | string | no | Dump path when the command line gives none |
 | `output.log_every` | integer ≥ 0 | no | Steps between progress lines on stdout, 0 for none. Default 100 |
 

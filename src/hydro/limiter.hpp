@@ -37,9 +37,11 @@ std::vector<double> pressure_limiters(const mesh::Mesh& m,
 
 // chi_c(V) of Eq. 7: the same on velocities projected onto u_c = V_c / |V_c|,
 // i.e. controls V_c' . u_c, extrapolations (V_c + (grad V)_c (x_p - x_c)) .
-// u_c, reference V_c . u_c = |V_c|. Where V_c = 0 exactly, u_c is the
+// u_c, reference V_c . u_c = |V_c|. Where V_c = 0, u_c is the
 // pressure-gradient direction, or e_x if that is zero too (our choice, the
-// thesis SP rule). velocity_gradient[c][i][j] = dV_i/dx_j, as cell_gradients.
+// thesis SP rule). V_c counts as zero below 1e-8 of the largest |V_c'| over
+// C(P(c)): the direction of a round-off V_c is arbitrary, and mirror cells
+// of a 1D flow would otherwise get different factors. velocity_gradient[c][i][j] = dV_i/dx_j, as cell_gradients.
 std::vector<double> velocity_limiters(const mesh::Mesh& m,
                                       const std::vector<double>& vel_x,
                                       const std::vector<double>& vel_y,
