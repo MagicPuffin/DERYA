@@ -83,6 +83,60 @@ stop and report rather than deciding to override it.
   more than needed; slab tests keep the extrusion at least one cell wide.
   Decided at the start of Task 5.
 
+- **Second-order extension (v0.2)**, decided in Task 9. The paper (Sec. 2.3)
+  gives the Green-formula gradients (Eq. 6), SP-V (Eq. 7) and
+  Barth-Jespersen (Eq. 8) and defers the rest to Georges' thesis [30]
+  (HAL tel-01376682, kept locally as `docs/GEORGES_GABRIEL_2016.pdf`, not
+  committed; Chapter 2 is in English). From the thesis unless marked "our
+  choice":
+  - *Reconstruction* (thesis Eq. 2.1): pressure and velocity only,
+    `P~_c(x) = P_c + (grad P)_c . (x - x_c)`, `V~_c(x) = V_c + (grad V)_c
+    (x - x_c)`, evaluated at the cell's nodes. `rho_c`, `a_c` (so the
+    impedance's cell part) stay cell values.
+  - *x_c = node average* (thesis Eq. 2.3), not the volume centroid. The
+    reconstruction is then not conservative, which does not matter: the
+    nodal solver guarantees momentum and energy conservation for any
+    corner values.
+  - *Gradients* (paper Eq. 6, thesis Eqs. 2.14-2.15) use the nodal values
+    `P_cfp`, `V_p` of a *first-order* nodal solve at the same state ("these
+    gradients depend on the first order solver"). Our choice where the
+    thesis is silent: that solve is done afresh at each stage, not lagged
+    from the previous step, so each stage costs two nodal solves. Lagging
+    is a possible later optimization, to be measured against this.
+  - *Second-order nodal solve* (thesis Eqs. 2.43-2.44): `P_c`, `V_c`
+    replaced per corner by `P~_c(x_p)`, `V~_c(x_p)` in `B`, in Eq. 3 and in
+    the corner forces. Our choice: the two-shock impedance's velocity jump
+    is `s = (V_p - V~_c(x_p)) . n_pf` too (the thesis has the acoustic Z).
+  - *Limiter: SP-V* as in the paper (Eqs. 7-8): Barth-Jespersen with
+    controls on the cells sharing a node with c (`C(P(c))`, c included, no
+    ghost cells at boundaries: our choice) and extrapolated values at c's
+    own nodes; velocity limited as a whole by one factor, from its
+    projection on `V_c/|V_c|`. Our choice for `V_c = 0` exactly: project on
+    the pressure-gradient direction, else `e_x` (the thesis SP rule).
+  - *Time integration: predictor-corrector* (thesis Sec. 2.6.1, Eqs.
+    2.42-2.49, alpha = 1): an Euler predictor to state (1), then the
+    corrector averages the predictor's and its own fluxes and nodal
+    velocities. Each stage = first-order solve, gradients, SP-V,
+    second-order solve, so ~4 nodal solves per step (~4x the first-order
+    cost). dt is computed once per step, before the predictor. The thesis's
+    GRP alternative (Sec. 2.6.2) is cheaper and less dissipative but needs
+    time derivatives of the nodal velocities and face vectors; deferred
+    until cost matters.
+  - *Timestep:* the existing controller unchanged. The thesis (Sec. 1.5)
+    also has an internal-energy positivity criterion; added only if a
+    second-order run needs it.
+  - *Smooth convergence problem:* the Taylor-Green vortex (thesis Sec. 3.2,
+    after Dobrev et al.): stationary, smooth, exact, and the thesis's Table
+    3.1(b) gives reference errors for this exact scheme (PC, Green
+    gradients, unlimited: L1 order 1.98 at 320x320). It needs a prescribed
+    energy source term (thesis Eq. 3.6, Appendix B). Rejected: a 1D simple
+    wave (needs a characteristics solver for the oracle and has no
+    reference numbers); Kidder (stays in v0.3).
+  - *Known risk:* the thesis reports its SP limiter failing on Noh and
+    Sedov (non-monotone, oscillating), where only its MM limiter (Sec. 2.4)
+    works. The paper's SP-V reportedly fixes this. If Noh at second order
+    oscillates, the MM limiter is the fallback, decided then.
+
 - **Build trees:** `build/` is optimized with debug symbols
   (`RelWithDebInfo`, the default build type and the `default` preset) and is
   where tests run; `build-debug/` (`Debug`, the `debug` preset) is only for

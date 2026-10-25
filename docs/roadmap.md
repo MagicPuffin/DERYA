@@ -24,7 +24,7 @@ drive coupling, burn physics, any formal documentation/review process.
 | Version | Contains | Gate |
 |---|---|---|
 | v0.1 | First-order Lagrangian hydro (3D-native mesh, run as thin-slab/"2D" test setups), no AMR, no p4est | Sod/Noh/Saltzman pass at 1 resolution |
-| v0.2 | + second-order (MUSCL/SP-V, paper Sec. 2.3) | same tests, 3 resolutions, correct convergence order |
+| v0.2 | + second-order (MUSCL/SP-V, paper Sec. 2.3) | Sod/Noh/Saltzman at 3 resolutions, second-order errors below first-order ones, rates documented; order ~2 on one smooth problem |
 | v0.3 | + Sedov, Kidder, Guderley, LeBlanc | all pass, convergence documented |
 | v0.4 | + p4est, Lagrange-AMR, Euler-AMR, thin-slab | paper's Sod-AMR/triple-point-AMR parity |
 | v0.5 | + genuinely 3D problems, cylindrical geometry | DoD item 2 |
@@ -32,10 +32,11 @@ drive coupling, burn physics, any formal documentation/review process.
 
 ## Known design gaps (not yet built, tracked so they aren't forgotten)
 - **Second-order rollout** — broken down as Tasks 9-15 in `backlog.md`.
-  Open: the paper defers its time integration and reconstruction details
-  to Georges' thesis [30] (Task 9 decides them), and the v0.2 gate needs
-  rewording, since rates on shocked problems are <= 1 for any scheme
-  (proposal in Task 9).
+  The details the paper defers to Georges' thesis [30] were settled from
+  the thesis in Task 9 (`decisions.md`, "Second-order extension"). The
+  v0.2 gate was
+  reworded (agreed 2026-10-25): rates on shocked problems are <= 1 for any
+  scheme, so order 2 is shown on a smooth problem instead.
 - **Debug/probe tooling** — a `--probe cell_id` flag to dump full state for
   one cell/node across timesteps. Cheap, not yet added; the reference paper's
   own authors needed exactly this to catch their triple-point oscillation bug.

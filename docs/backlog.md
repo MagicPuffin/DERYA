@@ -243,96 +243,99 @@ impedance. Every task keeps the first-order path working and selectable:
 `order = 1` must reproduce today's results exactly, which is the regression
 check for every v0.2 task.
 
-## Task 9 — Decide the unspecified parts of the second-order scheme
-Files: `docs/decisions.md`, `docs/backlog.md` (Tasks 10-15 adjusted to the
-outcome), `docs/roadmap.md` (gate wording, if agreed). No code.
-- [ ] Try to get ref. [30] (theses.fr / HAL may have it open access) and
-      Georges, Breil & Maire [29]; read their second-order sections. What
-      can't be found gets decided here and marked "our choice"
-- [ ] Time integration. The paper does not say. Candidates: the EUCCLHYD
-      predictor-corrector (predict geometry and state to t^{n+1/2}, solve
-      there, then a full step with those fluxes) or two-stage RK2 (Heun).
-      Either needs two nodal solves per step, so roughly twice the cost
-- [ ] Where Eq. 6's nodal values come from. (grad P)_c uses P_cfp and
-      (grad V)_c uses V_p, which are outputs of a nodal solve: a first-order
-      solve at the start of each step (or stage), or lagged values from the
-      previous step
-- [ ] How the reconstruction enters the solver: P_c and V_c in Eqs. 3-4
-      and in the corner forces replaced, per corner, by
-      P_c + (grad P)_c . (x_p - x_c) and V_c + (grad V)_c (x_p - x_c) ("the
-      reconstruction is evaluated at the nodes of the cell"). Is rho_c a_c
-      in the two-shock Z still the cell value? (Expected: yes)
-- [ ] x_c: volume centroid or node average (the dump uses the node
-      average; a linear field is reproduced exactly only with the right one)
-- [ ] Limiter edge cases: Eq. 7's velocity limiter divides by |V_c| (a gas
-      at rest, or the Noh wall); stencil C(P(c)) at domain boundaries
-- [ ] Timestep: is the current controller (`decisions.md`) still right, or
-      does the second-order step need a smaller C_cfl?
-- [ ] **v0.2 gate wording** (needs Luca's agreement). The roadmap says "same
-      tests, 3 resolutions, correct convergence order", but on solutions
-      with shocks every scheme converges at order <= 1; second order shows
-      as a smaller error constant there, not a higher rate. Proposed gate:
-      Sod/Noh/Saltzman at 3 resolutions with second-order errors below
-      first-order ones and the observed rates documented, plus order ~2 on
-      one smooth problem (Task 14)
-- [ ] Smooth test problem for Task 14. Candidates: a 1D isentropic simple
-      wave before it steepens (exact solution by characteristics, oracle
-      from a short script), or Kidder's isentropic compression (smooth and
-      exact, but brought forward from v0.3)
+## Task 9 — Decide the unspecified parts of the second-order scheme — ✅ DONE
+Files: `docs/decisions.md` ("Second-order extension (v0.2)"), this backlog,
+`docs/roadmap.md` (gate). No code.
+- [x] Ref. [30] found open access (HAL tel-01376682), kept locally as
+      `docs/GEORGES_GABRIEL_2016.pdf` (excluded from git like the paper).
+      Its Chapter 2 (English) settles most of the open points
+- [x] Time integration: the thesis's predictor-corrector (Sec. 2.6.1); GRP
+      deferred
+- [x] Eq. 6's nodal values: from a first-order solve at each stage (our
+      choice; the thesis says only that the gradients "depend on the first
+      order solver")
+- [x] Reconstruction in the solver: thesis Eqs. 2.43-2.44; cell rho, a; our
+      choice: reconstructed V in the two-shock jump too
+- [x] x_c = node average (thesis Eq. 2.3)
+- [x] Limiter edge cases: `V_c = 0` falls back to the pressure-gradient
+      direction, then e_x; no ghost cells in the stencil
+- [x] Timestep: unchanged
+- [x] **v0.2 gate wording**, agreed with Luca 2026-10-25 and now in
+      `roadmap.md`. The old "same tests, 3 resolutions, correct convergence
+      order" can't be met: on solutions with shocks every scheme converges
+      at order <= 1, and second order shows as a smaller error constant
+      there, not a higher rate. New gate: Sod/Noh/Saltzman at 3 resolutions
+      with second-order errors below first-order ones and the observed
+      rates documented, plus order ~2 on one smooth problem (Task 14)
+- [x] Smooth test problem: the Taylor-Green vortex, with the thesis's Table
+      3.1(b) as reference numbers
 
 ## Task 10 — Unlimited cell gradients (Eq. 6)
 Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
 `tests/unit/test_gradients.cpp`, the test CMakeLists.
-- [ ] Cell centre x_c as decided in Task 9
+- [ ] `cell_centers()`: x_c = mean of the cell's nodes
 - [ ] `cell_gradients()`: (grad P)_c = 1/V_c sum_p sum_f S_pf P_cfp n_pf
       and (grad V)_c = 1/V_c sum_p sum_f S_pf V_p (x) n_pf (a 3x3 tensor),
-      from given nodal values
+      from given nodal values; plus a helper giving the P_cfp of a
+      first-order solve (Eq. 3 at the solved V_p)
 - [ ] Tests: a constant field gives zero gradient (closure); a linear field
       sampled at the nodes gives its exact gradient on the distorted test
-      mesh (by the GCL); hand-computed values on a single box cell
+      mesh (thesis Appendix A.2); hand-computed values on a single box cell
 
 ## Task 11 — Barth-Jespersen and the SP-V limiter (Eqs. 7-8)
 Files: `src/hydro/` (limiter), `tests/unit/test_limiter.cpp`.
 - [ ] `barth_jespersen(controls, extrapolated, reference)` (Eq. 8)
-- [ ] chi_c(P): controls = P of the cells sharing a node with c (C(P(c))),
-      extrapolated values at c's own nodes (the SP-V difference from [30])
-- [ ] chi_c(V): the same on velocities projected onto V_c / |V_c|, with the
-      |V_c| = 0 rule from Task 9
+- [ ] chi_c(P): controls = P of the cells sharing a node with c (C(P(c)),
+      c included), extrapolated to c's own nodes
+- [ ] chi_c(V): the same on velocities projected onto V_c / |V_c|; for
+      V_c = 0 onto (grad P)_c / |(grad P)_c|, else e_x
 - [ ] Tests: Eq. 8 by hand (above, below, inside the bounds); a linear
       field away from boundaries gives chi = 1; a cell at a local extremum
       gives chi = 0; on a slab with a 1D field every cell of a column gets
-      the same chi (1D symmetry, the property the paper wants)
+      the same chi (1D symmetry, the property the paper wants); the V_c = 0
+      fallback
 
 ## Task 12 — Second-order nodal solve and corner forces
 Files: `src/hydro/hydro.{hpp,cpp}`, `tests/unit/test_hydro.cpp`.
-- [ ] Reconstructed corner values (Task 9) used in the assembly of Eq. 4,
-      in the two-shock Newton solve and in the corner forces (Eq. 3)
+- [ ] Reconstructed corner values P~_c(x_p), V~_c(x_p) (limited) used in
+      the assembly of Eq. 4 (thesis Eq. 2.43), in the two-shock Newton
+      solve (jump against V~_c(x_p)) and in Eq. 3 / the corner forces
+      (thesis Eq. 2.44)
 - [ ] Tests: zero gradients reproduce the first-order V_p and forces
       exactly; a uniform flow still gives V_p = V_c; momentum and total
       energy are still conserved in a closed box (conservation does not
       depend on the reconstruction)
 
-## Task 13 — Second-order time step and the scheme option
+## Task 13 — Predictor-corrector step and the scheme option
 Files: `src/hydro/`, `src/io/deck.{hpp,cpp}`, `src/app/driver.cpp`,
 `docs/deck_format.md`, tests.
-- [ ] The time integration from Task 9, as `lagrangian_step_2()` (or an
-      order argument), with gradients, limiting and the reconstructed solve
-      in each stage
+- [ ] `lagrangian_step_2()` (or an order argument): thesis Eqs. 2.42-2.49.
+      Each stage: first-order solve, gradients, SP-V, second-order solve;
+      the corrector moves nodes with the mean of the two stages' V_p and
+      updates cells with the mean of their fluxes. dt computed once per
+      step, before the predictor
 - [ ] Deck keys `scheme.order` (1 or 2, default 1 until v0.2 is accepted)
       and `scheme.limiter` (`"sp-v"` or `"none"`, the latter for smooth
       convergence tests)
 - [ ] Tests: `order = 1` decks give results identical to today's;
       `order = 2` conserves mass, momentum and energy to round-off in a
       closed box; Sod at `order = 2` stays exactly 1D on the slab
+- Expected cost: ~4 nodal solves per step, ~4x first order
 
-## Task 14 — Smooth convergence test
-Files: `scripts/gen_oracle_data.py`, new oracle and decks, tests.
-- [ ] Oracle for the smooth problem chosen in Task 9
-- [ ] Order ~1 at `order = 1` and ~2 at `order = 2` over 3+ resolutions
-      (L1, unlimited and with SP-V; the limiter may cost some order at
-      smooth extrema, which is expected and gets documented)
-- [ ] Runs as a ctest; the resolutions are kept small enough for the
-      optimized build
+## Task 14 — Smooth convergence: the Taylor-Green vortex
+Files: `src/hydro/` (energy source), deck and driver support, new decks,
+`scripts/gen_oracle_data.py` or an analytic check in the test, tests.
+- [ ] Prescribed energy source term (thesis Eq. 3.6, Appendix B: how it
+      enters each stage of the predictor-corrector), as a deck option
+- [ ] Taylor-Green setup (thesis Eqs. 3.4-3.5: (rho0, C1, C2) = (1, 1, 1),
+      gamma = 1.4, symmetry walls, [0,1]^2 x one cell, t = 0.5); the exact
+      solution is the initial state
+- [ ] Pressure L1/L2 errors and orders, `order = 2` unlimited, compared
+      with the thesis's Table 3.1(b) (PC, Green gradients: 3.72e-2 at
+      10x10 ... 1.57e-4 at 320x320). Order ~1 at `order = 1`
+- [ ] The thesis only reaches order ~1.8-2 from 80x80 up; the ctest uses
+      small meshes (errors decreasing, order rising), the full table is a
+      script run on demand
 
 ## Task 15 — v0.2 acceptance: Sod, Noh, Saltzman at 3 resolutions
 Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.
@@ -341,11 +344,13 @@ Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.
 - [ ] `scripts/convergence.py`: runs a deck family, tabulates L1 errors and
       observed rates, plots error vs resolution. The first piece of
       `make_report.py` (roadmap DoD item 6)
-- [ ] Acceptance per the gate agreed in Task 9: second-order errors below
-      first-order ones at every resolution, rates documented in
-      `vv_catalog.md`. Saltzman at second order is where a limiter problem
-      would show (the paper's own triple-point bug); if it tangles, the
-      numerical failure policy (`roadmap.md`) gets decided then
+- [ ] Acceptance per the agreed gate: second-order errors below first-order
+      ones at every resolution, rates documented in `vv_catalog.md`
+- [ ] Risk (decisions.md): the thesis's SP limiter failed on Noh; if SP-V
+      oscillates there too, the MM limiter (thesis Sec. 2.4) is the
+      fallback. Saltzman at second order is where a limiter problem would
+      show; if it tangles, the numerical failure policy (`roadmap.md`) gets
+      decided then
 - [ ] Optional, cheap, recommended before this task: the `--probe cell_id`
       debug flag from `roadmap.md`'s design gaps
 
