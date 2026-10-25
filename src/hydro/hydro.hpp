@@ -104,9 +104,18 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
                                    const CellThermo& thermo,
                                    const bc::BoundarySet& bcs);
 
+// Nodal pressures of Eq. 3, P_cfp = P_c + Z_cfp (V_c - V_p) . n_pf, per cell,
+// face and node (P_c on a degenerate face, S_pf = 0). At the V_p of a
+// first-order solve these are the pressures the second-order gradients are
+// built from (thesis Eq. 2.14).
+std::vector<CornerValues> nodal_pressures(const HydroState& s,
+                                          const std::vector<CellFaceVectors>& faces,
+                                          const CellThermo& thermo,
+                                          const std::vector<CornerValues>& impedance,
+                                          const std::vector<Vec3>& node_velocity);
+
 // Corner forces F_cp = sum_{f in F(c,p)} S_pf P_cfp n_pf, per cell and local
-// corner, with the nodal pressures of Eq. 3,
-// P_cfp = P_c + Z_cfp (V_c - V_p) . n_pf.
+// corner, with the nodal pressures of Eq. 3 (nodal_pressures).
 std::vector<std::array<Vec3, mesh::kNodesPerCell>> corner_forces(
     const HydroState& s, const std::vector<CellFaceVectors>& faces,
     const CellThermo& thermo, const std::vector<CornerValues>& impedance,

@@ -4,6 +4,7 @@ add_executable(unit_tests
   test_mesh.cpp
   test_bc.cpp
   test_hydro.cpp
+  test_gradients.cpp
   test_timestep.cpp
   test_driver.cpp
 )

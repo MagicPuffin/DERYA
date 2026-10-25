@@ -328,26 +328,42 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
                            std::to_string(kMaxNewtonIterations) + " iterations");
 }
 
-std::vector<std::array<Vec3, kNodesPerCell>> corner_forces(
-    const HydroState& s, const std::vector<CellFaceVectors>& faces,
-    const CellThermo& thermo, const std::vector<CornerValues>& impedance,
-    const std::vector<Vec3>& node_velocity) {
+std::vector<CornerValues> nodal_pressures(const HydroState& s,
+                                          const std::vector<CellFaceVectors>& faces,
+                                          const CellThermo& thermo,
+                                          const std::vector<CornerValues>& impedance,
+                                          const std::vector<Vec3>& node_velocity) {
   const mesh::Mesh& m = s.mesh;
-  std::vector<std::array<Vec3, kNodesPerCell>> F(m.num_cells());
+  std::vector<CornerValues> P_cfp(m.num_cells());
   for (Index c = 0; c < m.num_cells(); ++c) {
     const double P = thermo.pressure[c];
     const Vec3 v = cell_velocity(s, c);
     for (int l = 0; l < kFacesPerCell; ++l) {
       for (int n = 0; n < kNodesPerFace; ++n) {
-        const int k = kHexFaceNodes[l][n];
-        const double Z = impedance[c][l][n];
-        const Vec3& Vp = node_velocity[m.cell_nodes[c][k]];
+        const Vec3& Vp = node_velocity[m.cell_nodes[c][kHexFaceNodes[l][n]]];
         const Vec3& Sn = faces[c][l][n];
         const double S = std::sqrt(dot(Sn, Sn));
-        if (S == 0.0) continue;
         const Vec3 dv = {v[0] - Vp[0], v[1] - Vp[1], v[2] - Vp[2]};
-        const double P_cfp = P + Z * dot(dv, Sn) / S;
-        for (int d = 0; d < 3; ++d) F[c][k][d] += P_cfp * Sn[d];
+        P_cfp[c][l][n] = S == 0.0 ? P : P + impedance[c][l][n] * dot(dv, Sn) / S;
+      }
+    }
+  }
+  return P_cfp;
+}
+
+std::vector<std::array<Vec3, kNodesPerCell>> corner_forces(
+    const HydroState& s, const std::vector<CellFaceVectors>& faces,
+    const CellThermo& thermo, const std::vector<CornerValues>& impedance,
+    const std::vector<Vec3>& node_velocity) {
+  const mesh::Mesh& m = s.mesh;
+  const auto P_cfp = nodal_pressures(s, faces, thermo, impedance, node_velocity);
+  std::vector<std::array<Vec3, kNodesPerCell>> F(m.num_cells());
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    for (int l = 0; l < kFacesPerCell; ++l) {
+      for (int n = 0; n < kNodesPerFace; ++n) {
+        const int k = kHexFaceNodes[l][n];
+        const Vec3& Sn = faces[c][l][n];
+        for (int d = 0; d < 3; ++d) F[c][k][d] += P_cfp[c][l][n] * Sn[d];
       }
     }
   }

@@ -273,12 +273,12 @@ Files: `docs/decisions.md` ("Second-order extension (v0.2)"), this backlog,
 ## Task 10 — Unlimited cell gradients (Eq. 6)
 Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
 `tests/unit/test_gradients.cpp`, the test CMakeLists.
-- [ ] `cell_centers()`: x_c = mean of the cell's nodes
-- [ ] `cell_gradients()`: (grad P)_c = 1/V_c sum_p sum_f S_pf P_cfp n_pf
+- [x] `cell_centers()`: x_c = mean of the cell's nodes
+- [x] `cell_gradients()`: (grad P)_c = 1/V_c sum_p sum_f S_pf P_cfp n_pf
       and (grad V)_c = 1/V_c sum_p sum_f S_pf V_p (x) n_pf (a 3x3 tensor),
       from given nodal values; plus a helper giving the P_cfp of a
       first-order solve (Eq. 3 at the solved V_p)
-- [ ] Tests: a constant field gives zero gradient (closure); a linear field
+- [x] Tests: a constant field gives zero gradient (closure); a linear field
       sampled at the nodes gives its exact gradient on the distorted test
       mesh (thesis Appendix A.2); hand-computed values on a single box cell
 
