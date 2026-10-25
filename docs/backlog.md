@@ -284,12 +284,13 @@ Files: `src/hydro/` (new `gradients.{hpp,cpp}` or added to `hydro`),
 
 ## Task 11 — Barth-Jespersen and the SP-V limiter (Eqs. 7-8)
 Files: `src/hydro/` (limiter), `tests/unit/test_limiter.cpp`.
-- [ ] `barth_jespersen(controls, extrapolated, reference)` (Eq. 8)
-- [ ] chi_c(P): controls = P of the cells sharing a node with c (C(P(c)),
+- [x] `barth_jespersen(controls, extrapolated, reference)` (Eq. 8; the
+      preprint's `max(., 1)` in the `b_j < d` branch is a typo for `min`)
+- [x] chi_c(P): controls = P of the cells sharing a node with c (C(P(c)),
       c included), extrapolated to c's own nodes
-- [ ] chi_c(V): the same on velocities projected onto V_c / |V_c|; for
+- [x] chi_c(V): the same on velocities projected onto V_c / |V_c|; for
       V_c = 0 onto (grad P)_c / |(grad P)_c|, else e_x
-- [ ] Tests: Eq. 8 by hand (above, below, inside the bounds); a linear
+- [x] Tests: Eq. 8 by hand (above, below, inside the bounds); a linear
       field away from boundaries gives chi = 1; a cell at a local extremum
       gives chi = 0; on a slab with a 1D field every cell of a column gets
       the same chi (1D symmetry, the property the paper wants); the V_c = 0
