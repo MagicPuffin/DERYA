@@ -6,7 +6,7 @@ Update the checkboxes as tasks land.
 - **v0.1** (Tasks 0-8, done): first-order Lagrangian hydro. Acceptance bar
   (from `roadmap.md`): Sod, Noh, Saltzman pass at 1 resolution, no AMR, no
   p4est.
-- **v0.2** (Tasks 9-15, below): second-order extension, paper Sec. 2.3.
+- **v0.2** (Tasks 9-15, done): second-order extension, paper Sec. 2.3.
 
 ## Task 0 — Repo & toolchain bootstrap — ✅ DONE
 - [x] CMake skeleton, Catch2 v3.7.1 + nlohmann::json v3.11.3 via FetchContent
@@ -416,30 +416,53 @@ Files: `src/hydro/scheme.{hpp,cpp}` (energy source), `src/io/deck.{hpp,cpp}`,
       the initial state; deck parsing and 5 rejections
 - [x] Sod, Noh and Saltzman dumps byte-identical to before the task
 
-## Task 15 — v0.2 acceptance: Sod, Noh, Saltzman at 3 resolutions
-Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.
-- [ ] Decks at 3 resolutions per problem (e.g. 50/100/200 cells along the
-      flow), both orders
-- [ ] `scripts/convergence.py`: runs a deck family, tabulates L1 errors and
-      observed rates, plots error vs resolution. The first piece of
-      `make_report.py` (roadmap DoD item 6)
-- [ ] Acceptance per the agreed gate: second-order errors below first-order
-      ones at every resolution, rates documented in `vv_catalog.md`
-- [ ] Known from Task 13: `decks/saltzman.json` at order 2 fails at step
-      537 (t = 0.289): `cell_thermo` throws on eps = -2.1e-14 in the
-      predicted state of cell 940, cold gas ahead of the shock (row 9,
-      x ~ 0.41) holding round-off precursors (eps ~1e-14, kinetic energy
-      4e-20). The negative-eps tolerance is relative to the cell's own
-      kinetic energy, ~0 there; one relative to the flow's energy scale
-      would clamp it. Also check the order-2 Noh plateau overshoot (peak
-      rho 4.81)
-- [ ] Risk (decisions.md): the thesis's SP limiter failed on Noh; if SP-V
-      oscillates there too, the MM limiter (thesis Sec. 2.4) is the
-      fallback. Saltzman at second order is where a limiter problem would
-      show; if it tangles, the numerical failure policy (`roadmap.md`) gets
-      decided then
-- [ ] Optional, cheap, recommended before this task: the `--probe cell_id`
-      debug flag from `roadmap.md`'s design gaps
+## Task 15 — v0.2 acceptance: Sod, Noh, Saltzman at 3 resolutions — ✅ DONE
+Files: new `decks/convergence/{sod,noh,saltzman}_{50,100,200}.json`, new
+`scripts/convergence.py`, new `docs/figures/convergence_v0.2.png`,
+`tests/unit/test_{driver,hydro}.cpp`, `docs/{vv_catalog,decisions,roadmap}.md`,
+`README.md`. Flagged: `src/hydro/hydro.{hpp,cpp}` (the negative-eps
+tolerance, below; the task named the fix but not the file).
+- [x] Decks at 50/100/200 cells along the flow: Sod n×2×2 and Noh n×1×1
+      with cubic cells, Saltzman n×(n/10)×1 with z = 1/n; the 100 members
+      equal `decks/{sod,noh,saltzman}.json` but for the output block. The
+      order is set by the script or test, not the deck
+- [x] `scripts/convergence.py`: runs the families in parallel at both
+      orders, L1 density error against exact solutions evaluated in the
+      script (exact Riemann solver for Sod, closed form for Noh and
+      Saltzman; they match `tests/oracle_data/` to 2e-13,
+      `--check-oracles`), rates, the gate check (exit 1 on failure),
+      `--plot`, `--markdown`. Not yet `make_report.py`: it has no report
+      output beyond the table and the PNG
+- [x] Gate passes: order 2 below order 1 at every resolution of all three.
+      Rates and the figure in `vv_catalog.md`. L1 at 200 cells, order 1 /
+      order 2: Sod 1.24e-2 / 3.53e-3, Noh 9.62e-3 / 7.91e-3, Saltzman
+      2.19e-2 / 1.56e-2. Rates ~1 on Noh and Saltzman at both orders; Sod
+      0.63 / 0.96 (the contact)
+- [x] ctest: `v0.2 gate: Sod` and `Noh` at 50/100/200, `Saltzman` at 50×5,
+      both orders, in-process, with the oracle interpolation of the older
+      tests (~50 s, ~60 s and ~30 s in parallel; the suite now takes about
+      a minute). Saltzman 100×10 and 200×20 at order 2 (1 and 8 min) are
+      script-only
+- [x] Saltzman at order 2 (failed at step 537 since Task 13): the
+      negative-eps tolerance in `cell_thermo` is now 1e-13 of the larger
+      of the cell's kinetic energy and the mesh's largest |E_c|, so the
+      round-off a cold cell picks up from the shocked flow's energy fluxes
+      (-2.1e-14) is clamped. It only widens the tolerance, so a run that
+      did not throw before is unchanged: order-1 Sod, Noh and Saltzman
+      dumps byte-identical. Unit test, red before: eps = -2e-14 in a cold
+      cell at rest is clamped next to a cell with E = 1, throws when no
+      cell has energy, and -1e-10 always throws. Saltzman 100×10 at order
+      2: 1121 steps, L1 3.10e-2 (first order 4.54e-2)
+- [x] Noh order-2 overshoot (peak rho 4.81) checked: it is in the 2nd-3rd
+      cells from the wall, the start-up/wall-heating error (cell 1 has rho
+      2.50, eps 0.80, as at first order); beyond x = 0.02 the plateau is
+      within 0.6% of 4 (first order: 1.6%), the shock is two cells wide
+      with no oscillation train. SP-V does not show the thesis's SP
+      failure on Noh, so the MM limiter is not needed. Saltzman at order 2
+      did not tangle at any resolution; the numerical failure policy stays
+      undecided
+- [ ] Not done (optional): the `--probe cell_id` flag; nothing in this task
+      needed it. Still a `roadmap.md` design gap
 
 ## After Task 15
 v0.2 is done when the gate agreed in Task 9 is met. The v0.3 backlog

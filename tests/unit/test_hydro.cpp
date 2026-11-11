@@ -308,6 +308,30 @@ TEST_CASE("make_state and cell_thermo round-trip", "[hydro]") {
                   std::runtime_error);
 }
 
+TEST_CASE("cell_thermo: negative eps within round-off of the flow is clamped",
+          "[hydro]") {
+  // Cold gas at rest next to a shocked one (Saltzman at second order, Task
+  // 15): E_c is a sum of energy fluxes of the flow's size, so a cold cell
+  // holds round-off of that size. eps = -2e-14 there, with no kinetic energy
+  // of its own, is clamped when another cell has E = 1, an error when no
+  // cell does, and -1e-10 is always an error.
+  const IdealGasEOS eos(5.0 / 3.0);
+  HydroState s = uniform_state(generate_structured_mesh({3, 1, 1}), 1.0,
+                               {0.0, 0.0, 0.0}, 0.0);
+  const auto faces = cell_face_vectors(s.mesh);
+  s.total_energy[0] = 1.0;
+  s.total_energy[2] = -2e-14;
+  const CellThermo t = cell_thermo(s, faces, eos);
+  CHECK(t.pressure[2] == 0.0);
+  CHECK(t.pressure[0] > 0.0);
+
+  s.total_energy[0] = 0.0;
+  CHECK_THROWS_AS(cell_thermo(s, faces, eos), std::runtime_error);
+  s.total_energy[0] = 1.0;
+  s.total_energy[2] = -1e-10;
+  CHECK_THROWS_AS(cell_thermo(s, faces, eos), std::runtime_error);
+}
+
 TEST_CASE("corner_impedances and assemble_nodal_system: hand-computed corner",
           "[hydro]") {
   // Corner node 1 = (1,0,0) of a unit cell touches its +x, -y and -z faces,

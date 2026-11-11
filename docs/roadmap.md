@@ -31,7 +31,8 @@ drive coupling, burn physics, any formal documentation/review process.
 | v1.0 | + science demo, restart, report generation | DoD fully met |
 
 ## Known design gaps (not yet built, tracked so they aren't forgotten)
-- **Second-order rollout** — broken down as Tasks 9-15 in `backlog.md`.
+- **Second-order rollout** — done (Tasks 9-15 in `backlog.md`; v0.2 gate
+  met, results in `vv_catalog.md`).
   The details the paper defers to Georges' thesis [30] were settled from
   the thesis in Task 9 (`decisions.md`, "Second-order extension"). The
   v0.2 gate was

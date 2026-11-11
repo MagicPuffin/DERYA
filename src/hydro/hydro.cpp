@@ -195,6 +195,11 @@ CellThermo cell_thermo(const HydroState& s,
   t.pressure.resize(num_cells);
   t.sound_speed.resize(num_cells);
   t.shock_coefficient.resize(num_cells);
+  // The flow's energy scale: the largest specific total energy.
+  double energy_scale = 0.0;
+  for (Index c = 0; c < num_cells; ++c) {
+    energy_scale = std::max(energy_scale, std::abs(s.total_energy[c]));
+  }
   for (Index c = 0; c < num_cells; ++c) {
     const double volume = cell_volume(s.mesh, c, faces[c]);
     if (!(volume > 0.0)) {
@@ -207,9 +212,11 @@ CellThermo cell_thermo(const HydroState& s,
     const double kinetic = 0.5 * dot(v, v);
     double eps = s.total_energy[c] - kinetic;
     // eps is a difference of numbers of size `kinetic`, so in a cold, moving
-    // gas it comes out a few ulp negative; that is clamped, more is an error.
+    // gas it comes out a few ulp negative; and E_c is a sum of energy
+    // fluxes of the flow's size, so a cold cell next to a shock holds
+    // round-off of that size. Both are clamped, more is an error.
     if (eps < 0.0) {
-      if (eps < -kEnergyRoundoff * kinetic) {
+      if (eps < -kEnergyRoundoff * std::max(kinetic, energy_scale)) {
         throw std::runtime_error("cell " + std::to_string(c) +
                                  " has negative internal energy " +
                                  std::to_string(eps));

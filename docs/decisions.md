@@ -66,6 +66,11 @@ stop and report rather than deciding to override it.
   up to the Newton residual. A cold, moving gas also needs
   `eps = E - |V|^2/2` clamped to 0 when it is negative by round-off (it
   throws beyond 1e-13 of the kinetic energy). Decided before Task 5 (Task 4b).
+  Widened in Task 15 to 1e-13 of the larger of the cell's kinetic energy
+  and the mesh's largest |E_c|: a cold cell at rest ahead of a shock gets
+  its E_c as a sum of energy fluxes of the shocked flow's size, so it holds
+  round-off of that size (Saltzman at second order: eps = -2.1e-14 with no
+  kinetic energy, which used to throw).
   A Jacobian whose trace is below `DBL_MIN / 1e-8` also counts as singular,
   because its regularization would underflow (subnormal precursors ahead of
   the Saltzman shock gave 0/0; Task 8).
@@ -165,7 +170,10 @@ stop and report rather than deciding to override it.
   - *Known risk:* the thesis reports its SP limiter failing on Noh and
     Sedov (non-monotone, oscillating), where only its MM limiter (Sec. 2.4)
     works. The paper's SP-V reportedly fixes this. If Noh at second order
-    oscillates, the MM limiter is the fallback, decided then.
+    oscillates, the MM limiter is the fallback, decided then. Checked in
+    Task 15: planar Noh at second order with SP-V does not oscillate (the
+    peak rho 4.81 is the wall-heating start-up error, 2nd-3rd cell from the
+    wall), so no MM limiter for now; Sedov (v0.3) is the next check.
 
 - **Build trees:** `build/` is optimized with debug symbols
   (`RelWithDebInfo`, the default build type and the `default` preset) and is

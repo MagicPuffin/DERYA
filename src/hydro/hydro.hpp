@@ -54,7 +54,9 @@ HydroState make_state(mesh::Mesh m, const std::vector<double>& density,
 // Cell thermodynamics at the current geometry: rho_c = m_c / V_c, and P_c,
 // a_c and the shock coefficient Gamma_c from the EOS, at eps_c = E_c -
 // |V_c|^2/2. Throws std::runtime_error on a cell with non-positive volume (a
-// tangled mesh) or a negative eps_c beyond round-off, which is clamped to 0.
+// tangled mesh) or a negative eps_c beyond round-off (1e-13 of the larger of
+// the cell's kinetic energy and the largest |E_c| of the mesh), which is
+// clamped to 0.
 struct CellThermo {
   std::vector<double> density;
   std::vector<double> pressure;

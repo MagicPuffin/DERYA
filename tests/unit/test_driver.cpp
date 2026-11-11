@@ -698,3 +698,101 @@ TEST_CASE("hydro_run: Taylor-Green vortex converges at order ~2", "[app][integra
     }
   }
 }
+
+namespace {
+
+// L1 density errors of decks/convergence/<problem>_<n>.json at each n, run
+// in-process at the given order; area(n) is the deck's y-z cross-section.
+template <typename Area>
+std::vector<double> family_errors(const std::string& problem, const std::vector<int>& sizes,
+                                  int order, Area area) {
+  const json oracle = read_oracle(problem);
+  std::vector<double> errors;
+  for (const int n : sizes) {
+    std::ifstream in(std::string(DECK_DIR) + "/convergence/" + problem + "_" +
+                     std::to_string(n) + ".json");
+    REQUIRE(in);
+    json j = json::parse(in);
+    j["scheme"]["order"] = order;
+    std::ostringstream log;
+    const auto r = hydro::app::run(parse_deck(j.dump()), log);
+    // The dump's fields, as l1_density_error reads them.
+    const auto faces = hydro::lagrangian::cell_face_vectors(r.state.mesh);
+    const auto centers = hydro::lagrangian::cell_centers(r.state.mesh);
+    json dump;
+    std::vector<double> x, volume, rho;
+    for (Index c = 0; c < r.state.mesh.num_cells(); ++c) {
+      x.push_back(centers[c][0]);
+      volume.push_back(hydro::lagrangian::cell_volume(r.state.mesh, c, faces[c]));
+      rho.push_back(r.state.mass[c] / volume.back());
+    }
+    dump["cells"] = {{"centroid_x", x}, {"volume", volume}, {"density", rho}};
+    errors.push_back(l1_density_error(dump, oracle, area(n)));
+  }
+  return errors;
+}
+
+double rate(const std::vector<double>& e, const std::vector<int>& n, std::size_t i) {
+  return std::log(e[i - 1] / e[i]) / std::log(static_cast<double>(n[i]) / n[i - 1]);
+}
+
+// The v0.2 gate (roadmap.md) on one family: errors fall with resolution at
+// both orders, and order 2's are below order 1's at every resolution.
+void check_gate(const std::vector<double>& first, const std::vector<double>& second) {
+  for (std::size_t i = 0; i < first.size(); ++i) {
+    INFO("resolution " << i << ": order 1 " << first[i] << ", order 2 " << second[i]);
+    CHECK(second[i] < first[i]);
+    if (i > 0) {
+      CHECK(first[i] < first[i - 1]);
+      CHECK(second[i] < second[i - 1]);
+    }
+  }
+}
+
+}  // namespace
+
+TEST_CASE("v0.2 gate: Sod at 50, 100, 200 cells", "[app][integration]") {
+  // decks/convergence/sod_<n>.json (cubic cells, n x 2 x 2). L1 density
+  // error against the oracle (interpolated, so slightly above
+  // scripts/convergence.py's exact-solution numbers): measured with the
+  // script, order 1 2.81e-2, 1.91e-2, 1.24e-2 (rates 0.56, 0.63, the
+  // contact's ~h^(1/2)); order 2 1.24e-2, 6.85e-3, 3.53e-3 (0.86, 0.96).
+  const std::vector<int> n = {50, 100, 200};
+  auto area = [](int cells) { return (2.0 / cells) * (2.0 / cells); };
+  const auto first = family_errors("sod", n, 1, area);
+  const auto second = family_errors("sod", n, 2, area);
+  check_gate(first, second);
+  INFO("rates order 1 " << rate(first, n, 1) << ", " << rate(first, n, 2) << "; order 2 "
+       << rate(second, n, 1) << ", " << rate(second, n, 2));
+  CHECK(rate(first, n, 2) > 0.5);
+  CHECK(rate(second, n, 2) > 0.8);
+  CHECK(second[2] < 0.4 * first[2]);
+}
+
+TEST_CASE("v0.2 gate: planar Noh at 50, 100, 200 cells", "[app][integration]") {
+  // decks/convergence/noh_<n>.json. Measured (exact solution): order 1
+  // 3.90e-2, 1.94e-2, 9.62e-3; order 2 3.10e-2, 1.56e-2, 7.91e-3; rates
+  // 1.0 at both orders (a shock: second order shows in the constant).
+  const std::vector<int> n = {50, 100, 200};
+  auto area = [](int cells) { return (1.0 / cells) * (1.0 / cells); };
+  const auto first = family_errors("noh", n, 1, area);
+  const auto second = family_errors("noh", n, 2, area);
+  check_gate(first, second);
+  for (std::size_t i = 1; i < n.size(); ++i) {
+    CHECK_THAT(rate(first, n, i), WithinAbs(1.0, 0.1));
+    CHECK_THAT(rate(second, n, i), WithinAbs(1.0, 0.1));
+  }
+}
+
+TEST_CASE("v0.2 gate: Saltzman at 50x5 cells", "[app][integration]") {
+  // decks/convergence/saltzman_50.json at both orders, the cheapest member
+  // (100x10 and 200x20 at order 2 take 1 and 8 min; they are in
+  // scripts/convergence.py). Measured: order 1 9.09e-2, order 2 7.03e-2.
+  // Order 2 at 100x10 failed at step 537 before Task 15 (round-off negative
+  // eps in cold gas, see cell_thermo).
+  const std::vector<int> n = {50};
+  auto area = [](int cells) { return 0.1 * (1.0 / cells); };
+  const auto first = family_errors("saltzman", n, 1, area);
+  const auto second = family_errors("saltzman", n, 2, area);
+  check_gate(first, second);
+}

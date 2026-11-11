@@ -16,10 +16,11 @@ Fusion deliverable.
 
 **v0.1 done** (first-order Lagrangian hydro, no AMR): Sod, planar Noh and
 the Saltzman piston, run through the `hydro_run` driver, match their exact
-solutions at one resolution. **v0.2 in progress** (second-order extension,
-paper Sec. 2.3): the scheme runs and is selectable per deck, and converges
-at order ~2 on a smooth flow (Taylor-Green), which is half of the v0.2
-gate; the shock problems at 3 resolutions (Task 15) are the other half.
+solutions at one resolution. **v0.2 done** (second-order extension, paper
+Sec. 2.3, selectable per deck): Sod, Noh and Saltzman at 3 resolutions have
+second-order errors below first-order ones at every resolution, and the
+Taylor-Green vortex converges at order ~2
+([docs/vv_catalog.md](docs/vv_catalog.md)).
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -52,8 +53,11 @@ gate; the shock problems at 3 resolutions (Task 15) are the other half.
   (experimental, first order stays the default): Green-formula gradients,
   the SP-V limiter (or none) and a predictor-corrector step, ~4.5x the cost
   of first order. Sod on the same slab: L1 density error 0.0072 (first
-  order: 0.0195), flow still exactly 1D. Saltzman does not yet run at
-  second order (see [docs/backlog.md](docs/backlog.md), Task 15)
+  order: 0.0195), flow still exactly 1D. Noh and Saltzman run at second
+  order too, with smaller errors than first order
+- `scripts/convergence.py`: runs Sod, Noh and Saltzman at 50/100/200 cells
+  (`decks/convergence/`) at both orders, tabulates L1 density errors and
+  rates, checks the v0.2 gate and plots error against resolution
 - Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
   energy source that keeps it stationary): the second-order scheme
   converges at order ~2 on this smooth flow (L1 pressure order 1.95 at
@@ -79,8 +83,7 @@ ctest --preset default
 For stepping through code in a debugger, use the separate unoptimized tree
 `build-debug/`: the same three commands with `debug` in place of `default`.
 It is about 12 times slower, so the suite takes several minutes there
-(almost all of it the Taylor-Green and Saltzman tests) instead of about 25
-seconds.
+(almost all of it the convergence tests) instead of about a minute.
 
 To run Sod and plot it (the plot needs the Python environment below):
 
@@ -112,7 +115,7 @@ known setup problems.
 | `decks/` | Example input decks |
 | `tests/unit/` | Catch2 unit and integration tests |
 | `tests/oracle_data/` | Exact-solution reference data (JSON) |
-| `scripts/` | Oracle data generation, dump plotting, Taylor-Green convergence table |
+| `scripts/` | Oracle data generation, dump plotting, convergence tables |
 | `docs/` | Project documentation, see below |
 
 ## Documentation

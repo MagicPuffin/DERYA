@@ -8,7 +8,10 @@ stderr. A failed run exits with status 1 and reports the step and time
 where it failed. Examples: [decks/sod.json](../decks/sod.json),
 [decks/noh.json](../decks/noh.json),
 [decks/saltzman.json](../decks/saltzman.json),
-[decks/taylor_green.json](../decks/taylor_green.json).
+[decks/taylor_green.json](../decks/taylor_green.json). The convergence families, the
+same problems at 50/100/200 cells, are in
+[decks/convergence/](../decks/convergence/); run them with
+`python3 scripts/convergence.py`.
 
 The reader rejects unknown keys, so a misspelled key is an error, not a
 silently ignored setting. The parser is in `src/io/deck.cpp`.
