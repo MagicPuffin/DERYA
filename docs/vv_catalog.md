@@ -18,6 +18,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 | Test | Stresses | Priority |
 |---|---|---|
 | Saltzman piston | mesh-misalignment robustness | High — passes at 1 resolution via `hydro_run` (v0.1; L1 density 0.0454, 100×10) |
+| Taylor-Green vortex (Dobrev et al.; Georges' thesis Sec. 3.2) | smooth convergence order, distorted cells; needs an energy source | Done (v0.2, Task 14) — order 2 unlimited: L1 pressure 5.98e-4 at 160×160, order 1.95 (thesis 1.94), within 25% of the thesis's Table 3.1(b); ctest 10-40, full table `scripts/taylor_green_convergence.py` |
 | **Kidder ball** | no spurious entropy under isentropic compression | **High** — most relevant to FLARE's actual drive regime |
 | **Guderley converging shock** | converging-shock focusing, cylindrical symmetry | **High** — most relevant to cylindrical implosion geometry |
 | LeBlanc | severe density/pressure jump, Riemann robustness | Medium |

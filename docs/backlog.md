@@ -367,20 +367,54 @@ Files: new `src/hydro/scheme.{hpp,cpp}`, `src/hydro/CMakeLists.txt`,
   0.0156 (first order 0.0194), plateau peak rho 4.81 vs 4.19 at first order.
   Cost ~4.5x first order (Sod 3.5 s vs 0.74 s optimized)
 
-## Task 14 — Smooth convergence: the Taylor-Green vortex
-Files: `src/hydro/` (energy source), deck and driver support, new decks,
-`scripts/gen_oracle_data.py` or an analytic check in the test, tests.
-- [ ] Prescribed energy source term (thesis Eq. 3.6, Appendix B: how it
-      enters each stage of the predictor-corrector), as a deck option
-- [ ] Taylor-Green setup (thesis Eqs. 3.4-3.5: (rho0, C1, C2) = (1, 1, 1),
-      gamma = 1.4, symmetry walls, [0,1]^2 x one cell, t = 0.5); the exact
-      solution is the initial state
-- [ ] Pressure L1/L2 errors and orders, `order = 2` unlimited, compared
-      with the thesis's Table 3.1(b) (PC, Green gradients: 3.72e-2 at
-      10x10 ... 1.57e-4 at 320x320). Order ~1 at `order = 1`
-- [ ] The thesis only reaches order ~1.8-2 from 80x80 up; the ctest uses
-      small meshes (errors decreasing, order rising), the full table is a
-      script run on demand
+## Task 14 — Smooth convergence: the Taylor-Green vortex — ✅ DONE
+Files: `src/hydro/scheme.{hpp,cpp}` (energy source), `src/io/deck.{hpp,cpp}`,
+`src/app/driver.{hpp,cpp}`, new `decks/taylor_green.json`, new
+`scripts/taylor_green_convergence.py`, `tests/unit/test_{hydro,driver}.cpp`,
+`docs/{decisions,deck_format,vv_catalog}.md`, `README.md`.
+- [x] Prescribed energy source: `EnergySource` (power per unit volume
+      S(x)), `source_power` (V_c S(x_c)) and `apply_source`; an optional
+      argument of `scheme_step`, `predictor_corrector_step` and
+      `second_order_fluxes`, entering each stage like the fluxes (thesis
+      Appendix B only adapts GRP; our choice, `decisions.md`). Order 1:
+      forward Euler at t^n. Deck: `"source": "taylor_green"` (thesis Eq. 3.6)
+- [x] Taylor-Green setup: `initial.taylor_green` {density, c1, c2}
+      (default 1, 1, 1) in place of background/regions;
+      `taylor_green_{velocity,pressure,source}` in the driver;
+      `decks/taylor_green.json` (gamma 1.4, symmetry walls, [0,1]^3 at
+      20x20x1, t = 0.5, order 2 unlimited)
+- [x] Pressure errors (thesis Eq. 3.7) at order 2, unlimited, against Table
+      3.1(b) (whose 20x20 E_L1 "2.11e-3" is a typo for 2.11e-2):
+
+      | Mesh | E_L1 | O_L1 | E_L2 | O_L2 | thesis E_L1 / E_L2 |
+      |---|---|---|---|---|---|
+      | 10x10 | 2.81e-2 | - | 3.98e-2 | - | 3.72e-2 / 4.96e-2 |
+      | 20x20 | 2.03e-2 | 0.47 | 2.28e-2 | 0.80 | 2.11e-2 / 2.37e-2 |
+      | 40x40 | 8.08e-3 | 1.33 | 9.44e-3 | 1.27 | 8.29e-3 / 9.61e-3 |
+      | 80x80 | 2.31e-3 | 1.81 | 2.76e-3 | 1.77 | 2.39e-3 / 2.83e-3 |
+      | 160x160 | 5.98e-4 | 1.95 | 7.23e-4 | 1.93 | 6.21e-4 / 7.45e-4 |
+
+      Thesis orders at 160x160: 1.94 / 1.92. 320x320 not run (160x160
+      took 78 min optimized, ~24x 80x80)
+
+      Order 1: E_L1 1.37e-1, 9.09e-2, 5.29e-2, 2.86e-2 (orders 0.59, 0.78,
+      0.89)
+- [x] ctest `hydro_run: Taylor-Green vortex converges at order ~2`: 10x10,
+      20x20, 40x40 at both orders, in-process; errors decrease, order 2
+      below order 1 everywhere, the order-2 rate rises (> 1.2 at 40x40,
+      0.3 above order 1's), order 1's in [0.6, 1.2], order 2 within a factor
+      1.5 of the thesis. ~26 s optimized. Red without the source: the 40x40
+      error grows (rate -0.9). The full table is
+      `scripts/taylor_green_convergence.py`, on demand (80x80 ~3 min,
+      160x160 78 min)
+- [x] Unit tests: a uniform source heats a gas at rest uniformly (both
+      orders); in a closed box the total energy changes by dt sum V_c S(x_c)
+      at order 1 and by the mean over the two stages' geometries at order 2
+      (the stages differ by 1.5e-5 relative, the check is 1e-10); an empty
+      source is bit for bit the step without one; the Taylor-Green fields
+      solve steady Euler with the source (central differences, Appendix B);
+      the initial state; deck parsing and 5 rejections
+- [x] Sod, Noh and Saltzman dumps byte-identical to before the task
 
 ## Task 15 — v0.2 acceptance: Sod, Noh, Saltzman at 3 resolutions
 Files: decks, tests, `scripts/convergence.py` (new), `docs/vv_catalog.md`.

@@ -148,6 +148,20 @@ stop and report rather than deciding to override it.
     energy source term (thesis Eq. 3.6, Appendix B). Rejected: a 1D simple
     wave (needs a characteristics solver for the oracle and has no
     reference numbers); Kidder (stays in v0.3).
+    Settled in Task 14, our choices where the thesis is silent: the source
+    adds `V_c S(x_c)` (x_c the node average, the cell's current volume and
+    position) to `m_c dE_c/dt`, at each predictor-corrector stage like the
+    fluxes (the predictor's at s^n, the corrector the mean of s^n's and
+    s^(1)'s; Appendix B only adapts the GRP step); at first order it is
+    forward Euler at t^n. The initial state and the exact pressure are
+    point values at each cell's node average, the exact one at the cell's
+    *current* position (the profile is stationary in the Eulerian sense,
+    the cells move). Domain [0,1]^3, one cell in z, as the thesis. Eq. 3.5
+    is `rho0 C1^2 / 4 (cos 2 pi x + cos 2 pi y) + C2`, so (1, 1, 1) gives
+    P in [0.5, 1.5]; a deck must keep C2 > rho0 C1^2 / 2. Table 3.1(b)'s
+    20x20 E_L1 "2.11e-3" is a typo for 2.11e-2 (its order, 0.82, needs it).
+    Our errors are within 25% of the thesis's at every mesh to 160x160,
+    and the orders match (L1 1.95 vs 1.94 at 160x160).
   - *Known risk:* the thesis reports its SP limiter failing on Noh and
     Sedov (non-monotone, oscillating), where only its MM limiter (Sec. 2.4)
     works. The paper's SP-V reportedly fixes this. If Noh at second order

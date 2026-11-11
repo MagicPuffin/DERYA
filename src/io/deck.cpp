@@ -156,9 +156,30 @@ RegionState parse_state(const json& j, const std::string& path) {
   return s;
 }
 
+void parse_taylor_green(const json& j, Deck& deck) {
+  const std::string path = "initial.taylor_green";
+  object(j, path, {"density", "c1", "c2"});
+  TaylorGreen tg;
+  optional_number(j, path, "density", tg.density, [](double v) { return v > 0.0; },
+                  "must be > 0");
+  if (j.contains("c1")) tg.c1 = number(j.at("c1"), path + ".c1");
+  if (j.contains("c2")) tg.c2 = number(j.at("c2"), path + ".c2");
+  if (!(tg.c2 > 0.5 * tg.density * tg.c1 * tg.c1)) {
+    fail(path + ".c2", "must exceed density c1^2 / 2 (the pressure would not be positive)");
+  }
+  deck.taylor_green = tg;
+}
+
 void parse_initial(const json& j, Deck& deck) {
   const std::string path = "initial";
-  object(j, path, {"background", "regions"});
+  object(j, path, {"background", "regions", "taylor_green"});
+  if (j.contains("taylor_green")) {
+    if (j.contains("background") || j.contains("regions")) {
+      fail(path + ".taylor_green", "excludes background and regions");
+    }
+    parse_taylor_green(j.at("taylor_green"), deck);
+    return;
+  }
   const std::string bg_path = path + ".background";
   const json& bg = required(j, path, "background");
   object(bg, bg_path, {"density", "velocity", "pressure"});
@@ -218,6 +239,12 @@ void parse_scheme(const json& j, Deck& deck) {
   }
 }
 
+void parse_source(const json& j, Deck& deck) {
+  if (string(j, "source") != "taylor_green") fail("source", "only \"taylor_green\" is supported");
+  if (!deck.taylor_green) fail("source", "\"taylor_green\" needs initial.taylor_green");
+  deck.source = EnergySourceType::TaylorGreen;
+}
+
 void parse_output(const json& j, Deck& deck) {
   const std::string path = "output";
   object(j, path, {"path", "log_every"});
@@ -237,12 +264,14 @@ Deck parse_deck(const std::string& json_text) {
   } catch (const json::parse_error& e) {
     throw std::runtime_error(std::string("deck: invalid JSON: ") + e.what());
   }
-  object(j, "deck", {"mesh", "eos", "boundaries", "initial", "time", "scheme", "output"});
+  object(j, "deck",
+         {"mesh", "eos", "boundaries", "initial", "source", "time", "scheme", "output"});
   Deck deck;
   deck.mesh = parse_mesh(required(j, "deck", "mesh"), deck.perturbation);
   deck.gamma = parse_eos(required(j, "deck", "eos"));
   deck.boundaries = parse_boundaries(required(j, "deck", "boundaries"));
   parse_initial(required(j, "deck", "initial"), deck);
+  if (j.contains("source")) parse_source(j.at("source"), deck);
   parse_time(required(j, "deck", "time"), deck);
   if (j.contains("scheme")) parse_scheme(j.at("scheme"), deck);
   if (j.contains("output")) parse_output(j.at("output"), deck);

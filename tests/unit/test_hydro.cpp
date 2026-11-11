@@ -29,6 +29,7 @@ using hydro::lagrangian::CellFaceVectors;
 using hydro::lagrangian::CellGradients;
 using hydro::lagrangian::CellThermo;
 using hydro::lagrangian::CornerState;
+using hydro::lagrangian::EnergySource;
 using hydro::lagrangian::HydroState;
 using hydro::lagrangian::Limiter;
 using hydro::lagrangian::Scheme;
@@ -53,6 +54,7 @@ using hydro::lagrangian::pressure_limiters;
 using hydro::lagrangian::reconstructed_corners;
 using hydro::lagrangian::scheme_step;
 using hydro::lagrangian::second_order_fluxes;
+using hydro::lagrangian::source_power;
 using hydro::lagrangian::update_cells;
 using hydro::lagrangian::velocity_limiters;
 using hydro::mesh::Index;
@@ -1000,4 +1002,68 @@ TEST_CASE("predictor_corrector_step: uniform flow stays uniform", "[hydro]") {
               {initial.node_x[p] + 0.05 * v[0], initial.node_y[p] + 0.05 * v[1],
                initial.node_z[p] + 0.05 * v[2]});
   }
+}
+
+TEST_CASE("scheme_step: a uniform energy source heats a gas at rest uniformly",
+          "[hydro]") {
+  // S = 3 everywhere on a uniform gas at rest in a closed box: no pressure
+  // gradient appears, so the gas stays at rest and E_c gains dt S / rho_c per
+  // step, at both orders.
+  const IdealGasEOS eos(1.4);
+  const EnergySource source = [](const Vec3&) { return 3.0; };
+  const double rho = 2.0, eps = 1.5, dt = 0.01;
+  for (const int order : {1, 2}) {
+    INFO("order " << order);
+    HydroState s = uniform_state(distorted_mesh(), rho, {0.0, 0.0, 0.0}, eps);
+    for (int step = 0; step < 5; ++step) {
+      scheme_step(s, kClosedBox, eos, dt, Scheme{order, Limiter::None}, source);
+    }
+    for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+      INFO("cell " << c);
+      check_vec({s.vel_x[c], s.vel_y[c], s.vel_z[c]}, {0.0, 0.0, 0.0});
+      CHECK_THAT(s.total_energy[c], WithinRel(eps + 5 * dt * 3.0 / rho, 1e-13));
+    }
+  }
+}
+
+TEST_CASE("scheme_step: an energy source enters each stage", "[hydro]") {
+  // In a closed box the corner forces do no net work, so the total energy
+  // changes only by the source: dt sum_c V_c S(x_c) at t^n's geometry at
+  // order 1, and the mean of that and the predicted geometry's at order 2.
+  const IdealGasEOS eos(1.4);
+  const EnergySource source = [](const Vec3& x) { return 1.0 + x[0] - 2.0 * x[1] * x[2]; };
+  const double dt = 0.02;
+  auto sum = [](const std::vector<double>& v) {
+    double t = 0.0;
+    for (const double x : v) t += x;
+    return t;
+  };
+
+  const HydroState s0 = wavy_state();
+  const double power0 = sum(source_power(s0, cell_face_vectors(s0.mesh), source));
+  REQUIRE(power0 > 0.1);
+
+  HydroState first = s0;
+  scheme_step(first, kClosedBox, eos, dt, Scheme{1, Limiter::None}, source);
+  CHECK_THAT(total_energy(first) - total_energy(s0), WithinRel(dt * power0, 1e-12));
+
+  // The predicted geometry: the nodes of s^n moved by the first stage's V_p.
+  const StageFluxes f0 = second_order_fluxes(s0, kClosedBox, eos, Limiter::SpV);
+  HydroState predicted = s0;
+  move_nodes(predicted.mesh, f0.node_velocity, dt);
+  const double power1 =
+      sum(source_power(predicted, cell_face_vectors(predicted.mesh), source));
+  // Large enough against the tolerance to tell the stages apart.
+  REQUIRE(std::abs(power1 - power0) > 1e-6 * power0);
+
+  HydroState second = s0;
+  scheme_step(second, kClosedBox, eos, dt, Scheme{2, Limiter::SpV}, source);
+  CHECK_THAT(total_energy(second) - total_energy(s0),
+             WithinRel(0.5 * dt * (power0 + power1), 1e-10));
+
+  // No source is the step without one, bit for bit.
+  HydroState with_empty = s0, without = s0;
+  scheme_step(with_empty, kClosedBox, eos, dt, Scheme{2, Limiter::SpV}, EnergySource{});
+  predictor_corrector_step(without, kClosedBox, eos, dt, Limiter::SpV);
+  check_identical(with_empty, without);
 }

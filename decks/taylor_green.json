@@ -1,0 +1,18 @@
+{
+  "mesh": {
+    "cells": [20, 20, 1],
+    "min": [0.0, 0.0, 0.0],
+    "max": [1.0, 1.0, 1.0]
+  },
+  "eos": {"type": "ideal_gas", "gamma": 1.4},
+  "boundaries": {
+    "x_min": "symmetry", "x_max": "symmetry",
+    "y_min": "symmetry", "y_max": "symmetry",
+    "z_min": "symmetry", "z_max": "symmetry"
+  },
+  "initial": {"taylor_green": {"density": 1.0, "c1": 1.0, "c2": 1.0}},
+  "source": "taylor_green",
+  "time": {"t_end": 0.5},
+  "scheme": {"order": 2, "limiter": "none"},
+  "output": {"path": "taylor_green_final.json", "log_every": 0}
+}

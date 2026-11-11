@@ -16,6 +16,8 @@
 
 #include "deck.hpp"
 #include "driver.hpp"
+#include "eos.hpp"
+#include "gradients.hpp"
 #include "hydro.hpp"
 #include "mesh.hpp"
 
@@ -27,6 +29,7 @@ using hydro::io::Deck;
 using hydro::io::parse_deck;
 using hydro::io::thin_slab_warnings;
 using hydro::lagrangian::HydroState;
+using hydro::lagrangian::Vec3;
 using hydro::mesh::Index;
 using hydro::mesh::StructuredMeshSpec;
 using nlohmann::json;
@@ -255,6 +258,102 @@ TEST_CASE("parse_deck: the scheme block", "[io]") {
   check_rejected(j, "scheme.oder: unknown key");
   j["scheme"] = 2;
   check_rejected(j, "scheme: expected an object");
+}
+
+TEST_CASE("parse_deck: the Taylor-Green profile and source", "[io]") {
+  using hydro::io::EnergySourceType;
+  const json tg_initial = {{"taylor_green", {{"density", 2.0}, {"c1", 0.5}, {"c2", 3.0}}}};
+  json j = small_deck();
+  CHECK(!parse_deck(j.dump()).taylor_green);
+  CHECK(parse_deck(j.dump()).source == EnergySourceType::None);
+
+  j["initial"] = tg_initial;
+  j["source"] = "taylor_green";
+  const Deck d = parse_deck(j.dump());
+  REQUIRE(d.taylor_green);
+  CHECK(d.taylor_green->density == 2.0);
+  CHECK(d.taylor_green->c1 == 0.5);
+  CHECK(d.taylor_green->c2 == 3.0);
+  CHECK(d.source == EnergySourceType::TaylorGreen);
+
+  // Defaults (1, 1, 1), the thesis's constants; the source is optional.
+  j["initial"] = {{"taylor_green", json::object()}};
+  j.erase("source");
+  const Deck e = parse_deck(j.dump());
+  REQUIRE(e.taylor_green);
+  CHECK(e.taylor_green->density == 1.0);
+  CHECK(e.taylor_green->c1 == 1.0);
+  CHECK(e.taylor_green->c2 == 1.0);
+  CHECK(e.source == EnergySourceType::None);
+
+  j["initial"] = {{"taylor_green", {{"c2", 0.5}}}};
+  check_rejected(j, "initial.taylor_green.c2: must exceed density c1^2 / 2");
+  j["initial"] = {{"taylor_green", {{"c3", 1.0}}}};
+  check_rejected(j, "initial.taylor_green.c3: unknown key");
+  j["initial"] = tg_initial;
+  j["initial"]["background"] = {{"density", 1.0}, {"pressure", 1.0}};
+  check_rejected(j, "initial.taylor_green: excludes background and regions");
+  j = small_deck();
+  j["source"] = "taylor_green";
+  check_rejected(j, "source: \"taylor_green\" needs initial.taylor_green");
+  j["initial"] = tg_initial;
+  j["source"] = "gravity";
+  check_rejected(j, "source: only \"taylor_green\"");
+}
+
+TEST_CASE("taylor_green: a steady solution of Euler with the energy source", "[app]") {
+  // Appendix B of the thesis, checked by central differences at a few points:
+  // momentum, rho (V . grad) V + grad P = 0 (V is divergence free), and total
+  // energy, where the source must equal V . grad P / (gamma - 1) (Eq. B.12).
+  const hydro::io::TaylorGreen tg{1.3, 0.7, 2.0};
+  const double gamma = 5.0 / 3.0, h = 1e-5;
+  using hydro::app::taylor_green_pressure;
+  using hydro::app::taylor_green_velocity;
+  for (const Vec3& x : {Vec3{0.1, 0.2, 0.0}, Vec3{0.63, 0.37, 0.5}, Vec3{0.9, 0.55, 1.0}}) {
+    INFO("x = (" << x[0] << ", " << x[1] << ")");
+    Vec3 grad_p{}, div_v{};
+    std::array<Vec3, 2> dv{};  // dv[d] = dV/dx_d
+    for (int d = 0; d < 2; ++d) {
+      Vec3 a = x, b = x;
+      a[d] += h;
+      b[d] -= h;
+      grad_p[d] = (taylor_green_pressure(tg, a) - taylor_green_pressure(tg, b)) / (2 * h);
+      const Vec3 va = taylor_green_velocity(tg, a), vb = taylor_green_velocity(tg, b);
+      for (int i = 0; i < 3; ++i) dv[d][i] = (va[i] - vb[i]) / (2 * h);
+      div_v[0] += dv[d][d];
+    }
+    CHECK_THAT(div_v[0], WithinAbs(0.0, 1e-8));
+    const Vec3 v = taylor_green_velocity(tg, x);
+    for (int i = 0; i < 2; ++i) {
+      const double advection = v[0] * dv[0][i] + v[1] * dv[1][i];
+      CHECK_THAT(tg.density * advection + grad_p[i], WithinAbs(0.0, 1e-8));
+    }
+    const double v_grad_p = v[0] * grad_p[0] + v[1] * grad_p[1];
+    CHECK_THAT(hydro::app::taylor_green_source(tg, gamma, x),
+               WithinAbs(v_grad_p / (gamma - 1.0), 1e-8));
+  }
+  CHECK_THAT(taylor_green_pressure(tg, {0.0, 0.0, 0.0}),
+             WithinRel(0.25 * 1.3 * 0.49 * 2.0 + 2.0, 1e-15));
+}
+
+TEST_CASE("initial_state: the Taylor-Green profile at the cell centroids", "[app]") {
+  json j = read_deck_json("taylor_green");
+  j["mesh"]["cells"] = {4, 3, 1};
+  const Deck deck = parse_deck(j.dump());
+  REQUIRE(deck.taylor_green);
+  const HydroState s = hydro::app::initial_state(deck);
+  const auto centers = hydro::lagrangian::cell_centers(s.mesh);
+  REQUIRE(s.mesh.num_cells() == 12);
+  for (Index c = 0; c < 12; ++c) {
+    INFO("cell " << c);
+    const Vec3 v = hydro::app::taylor_green_velocity(*deck.taylor_green, centers[c]);
+    const double p = hydro::app::taylor_green_pressure(*deck.taylor_green, centers[c]);
+    CHECK_THAT(s.mass[c], WithinRel(1.0 / 12.0, 1e-14));
+    CHECK(s.vel_x[c] == v[0]);
+    CHECK(s.vel_y[c] == v[1]);
+    CHECK(s.vel_z[c] == 0.0);
+    CHECK_THAT(s.total_energy[c], WithinRel(p / 0.4 + 0.5 * (v[0] * v[0] + v[1] * v[1]), 1e-14));
+  }
 }
 
 TEST_CASE("thin_slab_warnings: a thin extrusion warns, cubic cells do not", "[io]") {
@@ -511,4 +610,91 @@ TEST_CASE("hydro_run: Saltzman piston against the exact solution", "[app][integr
   const double l1 = l1_density_error(dump, oracle, 0.1 * 0.01);
   INFO("L1 density error " << l1);
   CHECK(l1 < 0.05);
+}
+
+namespace {
+
+// Pressure errors of a Taylor-Green run against the exact (initial)
+// pressure at each cell's centroid, thesis Eq. 3.7: L1, L2, Linf.
+std::array<double, 3> taylor_green_errors(const Deck& deck, const HydroState& s) {
+  using namespace hydro::lagrangian;
+  const auto faces = cell_face_vectors(s.mesh);
+  const CellThermo thermo = cell_thermo(s, faces, hydro::eos::IdealGasEOS(deck.gamma));
+  const auto centers = cell_centers(s.mesh);
+  double volume = 0.0, l1 = 0.0, l2 = 0.0, linf = 0.0;
+  for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+    const double v = cell_volume(s.mesh, c, faces[c]);
+    const double dp = std::abs(thermo.pressure[c] -
+                               hydro::app::taylor_green_pressure(*deck.taylor_green, centers[c]));
+    volume += v;
+    l1 += v * dp;
+    l2 += v * dp * dp;
+    linf = std::max(linf, dp);
+  }
+  return {l1 / volume, std::sqrt(l2 / volume), linf};
+}
+
+}  // namespace
+
+TEST_CASE("hydro_run: Taylor-Green vortex converges at order ~2", "[app][integration]") {
+  // decks/taylor_green.json (thesis Sec. 3.2) at 10x10, 20x20 and 40x40, to
+  // t = 0.5. The thesis's Table 3.1(b) (predictor-corrector, Green
+  // gradients, unlimited), L1 / L2 pressure errors: 3.72e-2 / 4.96e-2,
+  // 2.11e-2 / 2.37e-2 (its "2.11e-3" is a typo: the order it gives, 0.82,
+  // needs 2.11e-2), 8.29e-3 / 9.61e-3, then 2.39e-3 / 2.83e-3 at 80x80.
+  // Measured at order 2: 2.81e-2 / 3.98e-2, 2.03e-2 / 2.28e-2, 8.08e-3 /
+  // 9.44e-3 (2.31e-3 / 2.76e-3 at 80x80, L1 order 1.81 vs the thesis's
+  // 1.79; 160x160 and up via scripts/taylor_green_convergence.py). At order
+  // 1: L1 1.37e-1, 9.09e-2, 5.29e-2 (orders 0.59, 0.78; 0.89 at 80x80).
+  // About 20 s at order 2, 6 s at order 1, optimized.
+  const json base = read_deck_json("taylor_green");
+  const std::array<int, 3> sizes = {10, 20, 40};
+  std::array<std::array<std::array<double, 3>, 3>, 2> errors{};  // [order][mesh][norm]
+  for (const int order : {1, 2}) {
+    for (std::size_t m = 0; m < sizes.size(); ++m) {
+      json j = base;
+      j["mesh"]["cells"] = {sizes[m], sizes[m], 1};
+      j["scheme"]["order"] = order;
+      const Deck deck = parse_deck(j.dump());
+      std::ostringstream log;
+      const auto r = hydro::app::run(deck, log);
+      CHECK(r.t == 0.5);
+      errors[order - 1][m] = taylor_green_errors(deck, r.state);
+    }
+  }
+  auto rate = [&](int order, std::size_t m, int norm) {
+    return std::log2(errors[order - 1][m - 1][norm] / errors[order - 1][m][norm]);
+  };
+  for (int norm = 0; norm < 3; ++norm) {
+    INFO("norm " << norm << ": order 2 errors " << errors[1][0][norm] << ", "
+         << errors[1][1][norm] << ", " << errors[1][2][norm] << "; order 1 "
+         << errors[0][0][norm] << ", " << errors[0][1][norm] << ", " << errors[0][2][norm]);
+    for (std::size_t m = 0; m < sizes.size(); ++m) {
+      CHECK(errors[1][m][norm] < errors[0][m][norm]);
+      if (m > 0) {
+        CHECK(errors[1][m][norm] < errors[1][m - 1][norm]);
+        CHECK(errors[0][m][norm] < errors[0][m - 1][norm]);
+      }
+    }
+  }
+  // L1 and L2: the order-2 rate rises towards 2 and passes the order-1 one;
+  // within a factor 1.5 of the thesis's errors.
+  for (int norm = 0; norm < 2; ++norm) {
+    INFO("norm " << norm << ": order 2 rates " << rate(2, 1, norm) << ", "
+         << rate(2, 2, norm) << "; order 1 " << rate(1, 1, norm) << ", " << rate(1, 2, norm));
+    CHECK(rate(2, 2, norm) > rate(2, 1, norm));
+    CHECK(rate(2, 2, norm) > 1.2);
+    CHECK(rate(2, 2, norm) > rate(1, 2, norm) + 0.3);
+    CHECK(rate(1, 2, norm) > 0.6);
+    CHECK(rate(1, 2, norm) < 1.2);
+  }
+  const std::array<std::array<double, 3>, 2> thesis = {{{3.72e-2, 2.11e-2, 8.29e-3},
+                                                         {4.96e-2, 2.37e-2, 9.61e-3}}};
+  for (int norm = 0; norm < 2; ++norm) {
+    for (std::size_t m = 0; m < sizes.size(); ++m) {
+      INFO("norm " << norm << ", " << sizes[m] << "x" << sizes[m]);
+      CHECK(errors[1][m][norm] < 1.5 * thesis[norm][m]);
+      CHECK(errors[1][m][norm] > thesis[norm][m] / 1.5);
+    }
+  }
 }

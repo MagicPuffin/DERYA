@@ -3,6 +3,7 @@
 #include <array>
 #include <iosfwd>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,21 @@ struct Region {
   RegionState state;
 };
 
+// Taylor-Green vortex (Georges' thesis Eqs. 3.4-3.5), an initial profile in
+// place of the background and regions, sampled at each cell's centroid:
+//   V = c1 (sin(pi x) cos(pi y), -cos(pi x) sin(pi y), 0),
+//   P = density c1^2 / 4 (cos(2 pi x) + cos(2 pi y)) + c2, rho = density.
+// c2 > density c1^2 / 2 keeps P positive (decisions.md).
+struct TaylorGreen {
+  double density = 1.0;
+  double c1 = 1.0;
+  double c2 = 1.0;
+};
+
+// Prescribed energy source. TaylorGreen: thesis Eq. 3.6, with the constants
+// of the deck's Taylor-Green profile, which keeps that profile stationary.
+enum class EnergySourceType { None, TaylorGreen };
+
 // Node perturbation applied to the structured mesh.
 enum class MeshPerturbation { None, Saltzman };
 
@@ -38,7 +54,9 @@ enum class MeshPerturbation { None, Saltzman };
 // Sod, Noh and Saltzman-type setups need: one structured mesh (optionally
 // perturbed), an ideal gas, one boundary per side, a background state
 // overridden by boxes in order (the last box containing a cell wins), and
-// time control, and the scheme (first order unless the deck asks for more).
+// time control, and the scheme (first order unless the deck asks for more);
+// or, instead of the background and boxes, the Taylor-Green profile, with
+// its energy source.
 struct Deck {
   mesh::StructuredMeshSpec mesh;
   MeshPerturbation perturbation = MeshPerturbation::None;
@@ -46,6 +64,9 @@ struct Deck {
   bc::BoundarySet boundaries;
   RegionState background;
   std::vector<Region> regions;
+  // Set: the initial state is this profile (no background, no regions).
+  std::optional<TaylorGreen> taylor_green;
+  EnergySourceType source = EnergySourceType::None;
   double t_end = 0.0;
   // dt^0 = min(dt_initial, CFL); infinity means CFL alone.
   double dt_initial = std::numeric_limits<double>::infinity();

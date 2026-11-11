@@ -7,7 +7,8 @@ against the current directory. Warnings, such as the thin-slab guard, go to
 stderr. A failed run exits with status 1 and reports the step and time
 where it failed. Examples: [decks/sod.json](../decks/sod.json),
 [decks/noh.json](../decks/noh.json),
-[decks/saltzman.json](../decks/saltzman.json).
+[decks/saltzman.json](../decks/saltzman.json),
+[decks/taylor_green.json](../decks/taylor_green.json).
 
 The reader rejects unknown keys, so a misspelled key is an error, not a
 silently ignored setting. The parser is in `src/io/deck.cpp`.
@@ -24,6 +25,8 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 | `boundaries.{x,y,z}_{min,max}` | string or object | yes, all six | `"symmetry"` (wall, `V·n = 0`), `"outflow"` (prescribed pressure = owner cell pressure), or `{"type": "piston", "velocity": [u, v, w]}` (wall moving with that velocity: `V·n = u_w·n`, tangential motion free) |
 | `initial.background` | state | yes | State of every cell not in a region |
 | `initial.regions` | array | no | Each item has `min`, `max` (3 numbers) and the state keys. A cell whose centroid (on the perturbed mesh) is in `[min, max)` takes the state. Later regions override earlier ones |
+| `initial.taylor_green` | object | no | Instead of `background` and `regions`: the Taylor-Green vortex (Georges' thesis Eqs. 3.4-3.5) at each cell's centroid, `V = c1 (sin πx cos πy, -cos πx sin πy, 0)`, `P = density c1² / 4 (cos 2πx + cos 2πy) + c2`, `rho = density`. Keys `density` (> 0), `c1`, `c2`, each default 1; `c2` must exceed `density c1² / 2` |
+| `source` | string | no | Energy source added to the total energy equation. Only `"taylor_green"` (thesis Eq. 3.6, with `initial.taylor_green`'s constants and `eos.gamma`; requires that block), which keeps the vortex stationary |
 | `time.t_end` | number > 0 | yes | The last step is cut so the run ends exactly at `t_end` |
 | `time.dt_initial` | number > 0 | no | `dt^0 = min(dt_initial, CFL)`. Default: CFL alone. A cold gas needs it |
 | `time.cfl`, `time.volume_fraction`, `time.max_growth`, `time.dt_max` | numbers | no | Timestep controller (`decisions.md`, "Lagrangian timestep"). Defaults 0.25, 0.1, 1.01, ∞ |
@@ -36,6 +39,10 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 A **state** is `density` (> 0, required), `pressure` (≥ 0, required) and
 `velocity` (3 numbers, default zero). The specific internal energy is
 `P / ((gamma - 1) rho)`.
+
+To tabulate Taylor-Green pressure errors and orders over several meshes
+against the thesis's Table 3.1(b):
+`python3 scripts/taylor_green_convergence.py [--sizes 10 20 40 80] [--order 2] [--limiter none]`.
 
 The **thin-slab guard** warns when a direction with a single cell is
 thinner than the smallest cell of the multi-cell directions, because

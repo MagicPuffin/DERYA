@@ -7,11 +7,24 @@
 
 namespace hydro::app {
 
+// Taylor-Green vortex (Georges' thesis Sec. 3.2): the exact (stationary)
+// velocity and pressure at x (Eqs. 3.4-3.5), and the energy source per unit
+// volume that keeps them stationary (Eq. 3.6, Appendix B):
+//   S = pi density c1^3 / (4 (gamma - 1))
+//       (cos(3 pi x) cos(pi y) - cos(3 pi y) cos(pi x)).
+lagrangian::Vec3 taylor_green_velocity(const io::TaylorGreen& tg, const lagrangian::Vec3& x);
+double taylor_green_pressure(const io::TaylorGreen& tg, const lagrangian::Vec3& x);
+double taylor_green_source(const io::TaylorGreen& tg, double gamma, const lagrangian::Vec3& x);
+
 // State on the deck's structured mesh, perturbed if the deck asks for it:
 // each cell takes the background state, overridden by every region whose box
-// [min, max) contains its centroid (the last such region wins).
+// [min, max) contains its centroid (the last such region wins); or, for a
+// Taylor-Green deck, the profile at its centroid.
 // eps = P / ((gamma - 1) rho).
 lagrangian::HydroState initial_state(const io::Deck& deck);
+
+// The deck's energy source (empty for none).
+lagrangian::EnergySource energy_source(const io::Deck& deck);
 
 struct RunResult {
   lagrangian::HydroState state;

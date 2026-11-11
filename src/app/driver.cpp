@@ -1,6 +1,7 @@
 #include "driver.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -27,7 +28,39 @@ bool inside(const io::Region& r, const Vec3& x) {
   return true;
 }
 
+constexpr double kPi = 3.14159265358979323846;
+
 }  // namespace
+
+Vec3 taylor_green_velocity(const io::TaylorGreen& tg, const Vec3& x) {
+  return {tg.c1 * std::sin(kPi * x[0]) * std::cos(kPi * x[1]),
+          -tg.c1 * std::cos(kPi * x[0]) * std::sin(kPi * x[1]), 0.0};
+}
+
+double taylor_green_pressure(const io::TaylorGreen& tg, const Vec3& x) {
+  return 0.25 * tg.density * tg.c1 * tg.c1 *
+             (std::cos(2.0 * kPi * x[0]) + std::cos(2.0 * kPi * x[1])) +
+         tg.c2;
+}
+
+double taylor_green_source(const io::TaylorGreen& tg, double gamma, const Vec3& x) {
+  return kPi * tg.density * tg.c1 * tg.c1 * tg.c1 / (4.0 * (gamma - 1.0)) *
+         (std::cos(3.0 * kPi * x[0]) * std::cos(kPi * x[1]) -
+          std::cos(3.0 * kPi * x[1]) * std::cos(kPi * x[0]));
+}
+
+lagrangian::EnergySource energy_source(const io::Deck& deck) {
+  switch (deck.source) {
+    case io::EnergySourceType::TaylorGreen: {
+      const io::TaylorGreen tg = *deck.taylor_green;
+      const double gamma = deck.gamma;
+      return [tg, gamma](const Vec3& x) { return taylor_green_source(tg, gamma, x); };
+    }
+    case io::EnergySourceType::None:
+      break;
+  }
+  return {};
+}
 
 HydroState initial_state(const io::Deck& deck) {
   mesh::Mesh m = mesh::generate_structured_mesh(deck.mesh);
@@ -44,6 +77,11 @@ HydroState initial_state(const io::Deck& deck) {
       centroid[2] += m.node_z[p] / kNodesPerCell;
     }
     io::RegionState st = deck.background;
+    if (deck.taylor_green) {
+      st.density = deck.taylor_green->density;
+      st.velocity = taylor_green_velocity(*deck.taylor_green, centroid);
+      st.pressure = taylor_green_pressure(*deck.taylor_green, centroid);
+    }
     for (const io::Region& r : deck.regions) {
       if (inside(r, centroid)) st = r.state;
     }
@@ -58,6 +96,7 @@ HydroState initial_state(const io::Deck& deck) {
 
 RunResult run(const io::Deck& deck, std::ostream& log) {
   const eos::IdealGasEOS eos(deck.gamma);
+  const lagrangian::EnergySource source = energy_source(deck);
   RunResult r{initial_state(deck), 0.0, 0};
   std::vector<Vec3> node_velocity;  // of the last step; none before the first
   double dt_prev = deck.dt_initial;
@@ -76,7 +115,7 @@ RunResult run(const io::Deck& deck, std::ostream& log) {
       const bool last = dt >= deck.t_end - r.t;
       if (last) dt = deck.t_end - r.t;
       node_velocity = lagrangian::scheme_step(r.state, deck.boundaries, eos, dt,
-                                               deck.scheme);
+                                               deck.scheme, source);
       r.t = last ? deck.t_end : r.t + dt;
     } catch (const std::runtime_error& e) {
       std::ostringstream msg;

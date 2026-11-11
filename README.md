@@ -17,8 +17,9 @@ Fusion deliverable.
 **v0.1 done** (first-order Lagrangian hydro, no AMR): Sod, planar Noh and
 the Saltzman piston, run through the `hydro_run` driver, match their exact
 solutions at one resolution. **v0.2 in progress** (second-order extension,
-paper Sec. 2.3): the scheme runs and is selectable per deck, but has not yet
-passed the v0.2 gate.
+paper Sec. 2.3): the scheme runs and is selectable per deck, and converges
+at order ~2 on a smooth flow (Taylor-Green), which is half of the v0.2
+gate; the shock problems at 3 resolutions (Task 15) are the other half.
 
 - Milestones and Definition of Done: [docs/roadmap.md](docs/roadmap.md)
 - Task-level progress and what's next: [docs/backlog.md](docs/backlog.md)
@@ -53,6 +54,11 @@ passed the v0.2 gate.
   of first order. Sod on the same slab: L1 density error 0.0072 (first
   order: 0.0195), flow still exactly 1D. Saltzman does not yet run at
   second order (see [docs/backlog.md](docs/backlog.md), Task 15)
+- Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
+  energy source that keeps it stationary): the second-order scheme
+  converges at order ~2 on this smooth flow (L1 pressure order 1.95 at
+  160×160), with errors within 25% of Georges' thesis's Table 3.1(b).
+  `scripts/taylor_green_convergence.py` tabulates errors and orders
 
 ## Out of scope for v1.0
 
@@ -72,8 +78,9 @@ ctest --preset default
 
 For stepping through code in a debugger, use the separate unoptimized tree
 `build-debug/`: the same three commands with `debug` in place of `default`.
-It is about 12 times slower, so the suite takes about 2.5 minutes there
-(almost all of it the Saltzman test) instead of about 15 seconds.
+It is about 12 times slower, so the suite takes several minutes there
+(almost all of it the Taylor-Green and Saltzman tests) instead of about 25
+seconds.
 
 To run Sod and plot it (the plot needs the Python environment below):
 
@@ -105,7 +112,7 @@ known setup problems.
 | `decks/` | Example input decks |
 | `tests/unit/` | Catch2 unit and integration tests |
 | `tests/oracle_data/` | Exact-solution reference data (JSON) |
-| `scripts/` | Oracle data generation, dump plotting |
+| `scripts/` | Oracle data generation, dump plotting, Taylor-Green convergence table |
 | `docs/` | Project documentation, see below |
 
 ## Documentation
