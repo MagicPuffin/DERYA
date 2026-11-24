@@ -67,5 +67,7 @@ for plotting and comparison but not for restart: it has no connectivity or
 boundary types. The restart schema is deferred to v1.0 (`roadmap.md`).
 
 To compare a dump with an exact solution:
-`python3 scripts/plot_comparison.py DUMP [--oracle FILE] [--gamma G] [-o PNG]`
-(defaults: the Sod oracle, the oracle's gamma or 1.4, `comparison.png`).
+`python3 scripts/plot_comparison.py DUMP [DUMP ...] [--oracle FILE] [--labels L ...] [--gamma G] [-o PNG]`
+(defaults: the Sod oracle, the file names as labels, the oracle's gamma or
+1.4, `comparison.png`). Up to four dumps overlay, e.g. order 1 and order 2
+of one deck.

@@ -57,6 +57,32 @@ start-up error. Order ~2 itself is shown on the smooth Taylor-Green vortex
 Saltzman 200×20 took 8.5 min with 8 runs sharing the machine (3x its
 first-order run there).
 
+### Profiles at 200 cells
+The computed cells over the exact solution, both orders, from
+`scripts/plot_comparison.py` on the 200-cell decks
+(`decks/convergence/*_200.json` with `scheme.order` set to 1 and 2). Each
+slab cell is one point, so a 2D spread shows as a band.
+
+![Sod profiles](figures/profiles_sod_200.png)
+
+Sod: order 2 is sharper at the rarefaction's ends and at the contact, the
+error the rates above measure. Both orders overshoot eps right of the
+contact (peaks 2.94 at order 1, 2.98 at order 2, exact 2.85), the start-up
+error a Lagrangian scheme leaves at a contact.
+
+![Noh profiles](figures/profiles_noh_200.png)
+
+Noh: the plateau and the two-cell shock match the exact solution at both
+orders. The error is the wall heating in the first cells (rho 2.5 in cell
+1, peak 4.81 at order 2; eps 0.8), as in Task 15.
+
+![Saltzman profiles](figures/profiles_saltzman_200.png)
+
+Saltzman: the band is the 20 rows of the skewed mesh. Just behind the
+shock some rows overshoot in pressure, up to 1.77 at order 1 and 1.56 at
+order 2 (exact 4/3); behind that, both orders keep a spread of about ±5%
+in x-velocity and a few percent in rho between rows.
+
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every
   test at ≥3 resolutions, assert observed order matches formal order, not
