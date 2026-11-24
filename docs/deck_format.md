@@ -1,7 +1,7 @@
 # Deck and dump formats
 
 `hydro_run <deck.json> [dump.json]` reads a JSON deck, runs it to `t_end`
-and writes the final state as a JSON dump. The dump path is the second
+and writes the final state as a JSON dump (options: [Probes](#probes---probe---probe-node)). The dump path is the second
 argument, or `output.path` from the deck. Relative paths are resolved
 against the current directory. Warnings, such as the thin-slab guard, go to
 stderr. A failed run exits with status 1 and reports the step and time
@@ -65,6 +65,29 @@ thinner than the smallest cell of the multi-cell directions, because
 All arrays are in mesh order (`src/mesh/mesh.hpp`). This snapshot is enough
 for plotting and comparison but not for restart: it has no connectivity or
 boundary types. The restart schema is deferred to v1.0 (`roadmap.md`).
+
+## Probes (`--probe`, `--probe-node`)
+
+`hydro_run deck.json [dump.json] --probe CELL [--probe CELL ...] [--probe-node NODE ...] [--probe-out PATH]`
+traces cells and nodes through the run, for debugging. Both flags repeat.
+The lines go to `PATH`, else to stderr, one JSON object per line: each
+probed cell in the order given, then each probed node, at step 0 (the
+initial state, `dt = 0`) and after every step. A run that fails stops
+after the lines of its last good step, the state the failing step started
+from.
+
+| Line | Keys |
+|---|---|
+| Cell | `cell`, `step`, `t`, `dt`, `centroid` (3), `volume`, `mass`, `density`, `velocity` (3), `pressure`, `internal_energy`, `sound_speed` |
+| Node | `node`, `step`, `t`, `dt`, `position` (3), `velocity` (3: the `V_p` the step moved the node with; `null` at step 0) |
+
+The values are computed as in the dump, so the last step's lines equal the
+dump's entries exactly. Probing does not change the run: the dump is
+byte-identical with and without probes. Ids are in mesh order, cell
+`i + nx (j + ny k)` and node `i + (nx + 1) (j + (ny + 1) k)`. An id outside
+the mesh fails the run (status 1) before the first step; a value that is
+not a non-negative integer is a usage error (status 2). Each step with a
+probed cell costs one more geometry and thermo pass over the mesh.
 
 To compare a dump with an exact solution:
 `python3 scripts/plot_comparison.py DUMP [DUMP ...] [--oracle FILE] [--labels L ...] [--gamma G] [-o PNG]`

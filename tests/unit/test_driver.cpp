@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -416,6 +417,123 @@ TEST_CASE("run: a failing step reports where it failed", "[app]") {
   std::ostringstream log;
   CHECK_THROWS_WITH(hydro::app::run(parse_deck(j.dump()), log),
                     ContainsSubstring("step 1 from t = 0"));
+}
+
+TEST_CASE("run: probes trace cells and nodes, and change nothing", "[app]") {
+  const Deck deck = parse_deck(small_deck().dump());
+  std::ostringstream log, quiet, trace;
+  const auto plain = hydro::app::run(deck, log);
+  hydro::app::Probes probes{{1, 3}, {7}, &trace};
+  const auto probed = hydro::app::run(deck, quiet, probes);
+  CHECK(probed.steps == plain.steps);
+  CHECK(probed.state.vel_x == plain.state.vel_x);
+  CHECK(probed.state.total_energy == plain.state.total_energy);
+  CHECK(probed.state.mesh.node_x == plain.state.mesh.node_x);
+
+  std::vector<json> lines;
+  std::istringstream in(trace.str());
+  for (std::string line; std::getline(in, line);) lines.push_back(json::parse(line));
+  // Cells 1 and 3, then node 7, at step 0 and after every step.
+  REQUIRE(lines.size() == 3 * static_cast<std::size_t>(plain.steps + 1));
+  CHECK(lines[0]["cell"] == 1);
+  CHECK(lines[1]["cell"] == 3);
+  CHECK(lines[2]["node"] == 7);
+  // Step 0 is the initial state: cell 1 is in the left region, cell 3 not.
+  CHECK(lines[0]["step"] == 0);
+  CHECK(lines[0]["dt"] == 0.0);
+  CHECK_THAT(lines[0]["density"].get<double>(), WithinRel(1.0, 1e-14));
+  CHECK_THAT(lines[0]["velocity"][0].get<double>(), WithinRel(0.5, 1e-14));
+  CHECK_THAT(lines[0]["internal_energy"].get<double>(), WithinRel(1.0 / 0.4, 1e-14));
+  CHECK_THAT(lines[1]["pressure"].get<double>(), WithinRel(0.1, 1e-14));
+  CHECK_THAT(lines[1]["sound_speed"].get<double>(), WithinRel(std::sqrt(1.4 * 0.1 / 0.125), 1e-14));
+  CHECK(lines[2]["velocity"].is_null());
+  const json& last = lines.back();
+  CHECK(last["step"] == plain.steps);
+  CHECK(last["t"] == plain.t);
+  CHECK(last["position"][0] == plain.state.mesh.node_x[7]);
+  CHECK(last["velocity"].size() == 3);
+  CHECK(lines[lines.size() - 3]["velocity"][0] == plain.state.vel_x[1]);
+}
+
+TEST_CASE("run: a probed id outside the mesh is rejected", "[app]") {
+  const Deck deck = parse_deck(small_deck().dump());  // 4 cells, 5x2x2 nodes
+  std::ostringstream log, trace;
+  CHECK_THROWS_AS(hydro::app::run(deck, log, {{4}, {}, &trace}), std::invalid_argument);
+  CHECK_THROWS_WITH(hydro::app::run(deck, log, {{4}, {}, &trace}),
+                    ContainsSubstring("probe: cell 4 is not in [0, 4)"));
+  CHECK_THROWS_WITH(hydro::app::run(deck, log, {{}, {20}, &trace}),
+                    ContainsSubstring("probe: node 20 is not in [0, 20)"));
+  CHECK_THROWS_WITH(hydro::app::run(deck, log, {{-1}, {}, nullptr}),
+                    ContainsSubstring("probe: cell -1"));
+  CHECK(trace.str().empty());
+}
+
+TEST_CASE("hydro_run: --probe matches the dump, and leaves it unchanged", "[app][integration]") {
+  const auto dir = std::filesystem::temp_directory_path();
+  const auto deck_path = (dir / "hydro_test_probe_deck.json").string();
+  const auto plain_path = (dir / "hydro_test_probe_plain.json").string();
+  const auto probed_path = (dir / "hydro_test_probe_probed.json").string();
+  const auto trace_path = (dir / "hydro_test_probe_trace.jsonl").string();
+  json deck = small_deck();
+  deck["scheme"] = {{"order", 2}};
+  std::ofstream(deck_path) << deck.dump();
+  const std::string exe = std::string("\"") + HYDRO_RUN_EXE + "\" \"" + deck_path + "\" ";
+  const auto run = [&](const std::string& args) {
+    return std::system((exe + args + " > /dev/null 2>&1").c_str());
+  };
+  REQUIRE(run("\"" + plain_path + "\"") == 0);
+  REQUIRE(run("\"" + probed_path + "\" --probe 2 --probe-node 11 --probe 0 --probe-out \"" +
+              trace_path + "\"") == 0);
+
+  const auto slurp = [](const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  };
+  CHECK(slurp(plain_path) == slurp(probed_path));
+
+  const json dump = json::parse(slurp(plain_path));
+  std::vector<json> lines;
+  std::ifstream in(trace_path);
+  for (std::string line; std::getline(in, line);) lines.push_back(json::parse(line));
+  REQUIRE(lines.size() == 3 * static_cast<std::size_t>(dump["steps"].get<long>() + 1));
+  const std::size_t n = lines.size();
+  const json& node = lines[n - 1];
+  CHECK(node["node"] == 11);
+  CHECK(node["step"] == dump["steps"]);
+  CHECK(node["t"] == dump["t"]);
+  CHECK(node["position"][0] == dump["nodes"]["x"][11]);
+  CHECK(node["position"][1] == dump["nodes"]["y"][11]);
+  CHECK(node["position"][2] == dump["nodes"]["z"][11]);
+  for (const json& cell : {lines[n - 3], lines[n - 2]}) {
+    const int c = cell["cell"];
+    INFO("cell " << c);
+    const json& cells = dump["cells"];
+    CHECK(cell["t"] == dump["t"]);
+    CHECK(cell["centroid"][0] == cells["centroid_x"][c]);
+    CHECK(cell["centroid"][1] == cells["centroid_y"][c]);
+    CHECK(cell["centroid"][2] == cells["centroid_z"][c]);
+    CHECK(cell["volume"] == cells["volume"][c]);
+    CHECK(cell["mass"] == cells["mass"][c]);
+    CHECK(cell["density"] == cells["density"][c]);
+    CHECK(cell["velocity"][0] == cells["velocity_x"][c]);
+    CHECK(cell["velocity"][1] == cells["velocity_y"][c]);
+    CHECK(cell["velocity"][2] == cells["velocity_z"][c]);
+    CHECK(cell["pressure"] == cells["pressure"][c]);
+    CHECK(cell["internal_energy"] == cells["internal_energy"][c]);
+  }
+  CHECK(lines[n - 3]["cell"] == 2);
+  CHECK(lines[n - 2]["cell"] == 0);
+
+  // A bad id: out of the mesh (a failed run), or not an id (a usage error).
+  CHECK(run("\"" + probed_path + "\" --probe 4") != 0);
+  CHECK(run("\"" + probed_path + "\" --probe-node 20") != 0);
+  CHECK(run("\"" + probed_path + "\" --probe -1") != 0);
+  CHECK(run("\"" + probed_path + "\" --probe 1x") != 0);
+  CHECK(run("\"" + probed_path + "\" --probe") != 0);
+  CHECK(run("\"" + probed_path + "\" --probes 1") != 0);
+  for (const auto& p : {deck_path, plain_path, probed_path, trace_path}) {
+    std::filesystem::remove(p);
+  }
 }
 
 TEST_CASE("hydro_run: Sod against the exact solution", "[app][integration]") {

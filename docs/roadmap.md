@@ -62,9 +62,9 @@ loosened to pass.
   v0.2 gate was
   reworded (agreed 2026-10-25): rates on shocked problems are <= 1 for any
   scheme, so order 2 is shown on a smooth problem instead.
-- **Debug/probe tooling** — a `--probe cell_id` flag to dump full state for
-  one cell/node across timesteps. Cheap, not yet added (now `backlog.md`
-  Task 17); the reference paper's
+- **Debug/probe tooling** — done (`backlog.md` Task 17): `hydro_run
+  --probe cell_id` and `--probe-node node_id` trace a cell's or node's full
+  state at every step (`deck_format.md`, "Probes"). The reference paper's
   own authors needed exactly this to catch their triple-point oscillation bug.
 - **Environment reproducibility** — `docs/SETUP.md` covers this incrementally;
   keep it current as new gotchas are hit (already has 4).

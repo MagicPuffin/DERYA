@@ -1,10 +1,13 @@
 #include "driver.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "eos.hpp"
@@ -29,6 +32,63 @@ bool inside(const io::Region& r, const Vec3& x) {
 }
 
 constexpr double kPi = 3.14159265358979323846;
+
+void check_probe_ids(const std::vector<Index>& ids, Index count, const char* what) {
+  for (const Index id : ids) {
+    if (id < 0 || id >= count) {
+      throw std::invalid_argument(std::string("probe: ") + what + " " + std::to_string(id) +
+                                  " is not in [0, " + std::to_string(count) + ")");
+    }
+  }
+}
+
+// The probe lines of `probes` at this step (see Probes in driver.hpp).
+void write_probes(const Probes& probes, const HydroState& s, const eos::EOS& eos,
+                  const std::vector<Vec3>& node_velocity, long step, double t, double dt) {
+  const mesh::Mesh& m = s.mesh;
+  if (!probes.cells.empty()) {
+    const auto faces = lagrangian::cell_face_vectors(m);
+    const auto thermo = lagrangian::cell_thermo(s, faces, eos);
+    for (const Index c : probes.cells) {
+      Vec3 centroid = {0.0, 0.0, 0.0};
+      for (const Index p : m.cell_nodes[c]) {
+        centroid[0] += m.node_x[p] / kNodesPerCell;
+        centroid[1] += m.node_y[p] / kNodesPerCell;
+        centroid[2] += m.node_z[p] / kNodesPerCell;
+      }
+      const double eps =
+          s.total_energy[c] - 0.5 * (s.vel_x[c] * s.vel_x[c] + s.vel_y[c] * s.vel_y[c] +
+                                     s.vel_z[c] * s.vel_z[c]);
+      const nlohmann::ordered_json line = {
+          {"cell", c},
+          {"step", step},
+          {"t", t},
+          {"dt", dt},
+          {"centroid", centroid},
+          {"volume", lagrangian::cell_volume(m, c, faces[c])},
+          {"mass", s.mass[c]},
+          {"density", thermo.density[c]},
+          {"velocity", {s.vel_x[c], s.vel_y[c], s.vel_z[c]}},
+          {"pressure", thermo.pressure[c]},
+          {"internal_energy", eps},
+          {"sound_speed", thermo.sound_speed[c]},
+      };
+      *probes.out << line.dump() << '\n';
+    }
+  }
+  for (const Index p : probes.nodes) {
+    nlohmann::ordered_json line = {
+        {"node", p},
+        {"step", step},
+        {"t", t},
+        {"dt", dt},
+        {"position", {m.node_x[p], m.node_y[p], m.node_z[p]}},
+        {"velocity", nullptr},
+    };
+    if (!node_velocity.empty()) line["velocity"] = node_velocity[p];
+    *probes.out << line.dump() << '\n';
+  }
+}
 
 }  // namespace
 
@@ -94,13 +154,18 @@ HydroState initial_state(const io::Deck& deck) {
   return lagrangian::make_state(std::move(m), rho, vx, vy, vz, eps);
 }
 
-RunResult run(const io::Deck& deck, std::ostream& log) {
+RunResult run(const io::Deck& deck, std::ostream& log, const Probes& probes) {
   const eos::IdealGasEOS eos(deck.gamma);
   const lagrangian::EnergySource source = energy_source(deck);
   RunResult r{initial_state(deck), 0.0, 0};
+  check_probe_ids(probes.cells, r.state.mesh.num_cells(), "cell");
+  check_probe_ids(probes.nodes, r.state.mesh.num_nodes(), "node");
+  const bool probing =
+      probes.out != nullptr && !(probes.cells.empty() && probes.nodes.empty());
   std::vector<Vec3> node_velocity;  // of the last step; none before the first
   double dt_prev = deck.dt_initial;
   double dt = 0.0;
+  if (probing) write_probes(probes, r.state, eos, node_velocity, 0, r.t, 0.0);
   while (r.t < deck.t_end) {
     if (r.steps >= deck.max_steps) {
       std::ostringstream msg;
@@ -123,6 +188,7 @@ RunResult run(const io::Deck& deck, std::ostream& log) {
       throw std::runtime_error(msg.str());
     }
     ++r.steps;
+    if (probing) write_probes(probes, r.state, eos, node_velocity, r.steps, r.t, dt);
     if (deck.log_every > 0 && r.steps % deck.log_every == 0) {
       log << "step " << r.steps << "  t = " << r.t << "  dt = " << dt << '\n';
     }

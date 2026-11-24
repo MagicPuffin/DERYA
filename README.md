@@ -48,7 +48,9 @@ Taylor-Green vortex converges at order ~2
   JSON. `decks/sod.json` gives L1 density error 0.0195 against the exact
   solution in 211 steps, `decks/noh.json` 0.0194 in 856 steps, and
   `decks/saltzman.json` 0.0454 in 1052 steps. `scripts/plot_comparison.py` plots a dump against
-  the exact solution. Formats: [docs/deck_format.md](docs/deck_format.md)
+  the exact solution. `--probe cell_id` and `--probe-node node_id` trace
+  cells and nodes step by step as JSON lines. Formats:
+  [docs/deck_format.md](docs/deck_format.md)
 - Second-order scheme, selected with `"scheme": {"order": 2}` in a deck
   (experimental, first order stays the default): Green-formula gradients,
   the SP-V limiter (or none) and a predictor-corrector step, ~4.5x the cost

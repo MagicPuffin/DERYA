@@ -1,6 +1,6 @@
 add_library(app STATIC driver.cpp)
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(app PUBLIC io hydro PRIVATE mesh eos timestep)
+target_link_libraries(app PUBLIC io hydro PRIVATE mesh eos timestep nlohmann_json::nlohmann_json)
 
 add_executable(hydro_run main.cpp)
 target_link_libraries(hydro_run PRIVATE app io eos)

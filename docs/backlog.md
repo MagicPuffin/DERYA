@@ -461,8 +461,8 @@ tolerance, below; the task named the fix but not the file).
       failure on Noh, so the MM limiter is not needed. Saltzman at order 2
       did not tangle at any resolution; the numerical failure policy stays
       undecided
-- [ ] Not done (optional): the `--probe cell_id` flag; nothing in this task
-      needed it. Still a `roadmap.md` design gap
+- [x] Not done here (optional): the `--probe cell_id` flag; nothing in
+      this task needed it. Done in Task 17
 
 # v0.3 — Sedov, Kidder, Guderley, LeBlanc (paper Sec. 6.4, thesis Ch. 3)
 
@@ -542,14 +542,23 @@ constants were derived instead (below).
       and cold right state, and the zero-area faces of the polar axis cells
       (`src/bc/bc.cpp` normalizes face normals unguarded)
 
-## Task 17 — `--probe` debug flag
+## Task 17 — `--probe` debug flag — ✅ DONE
 Files: `src/app/{main,driver}.{hpp,cpp}`, `docs/deck_format.md`,
-`tests/unit/test_driver.cpp`. The `roadmap.md` design gap.
-- [ ] `hydro_run deck.json [dump.json] --probe cell_id` (repeatable; maybe
-      `--probe-node node_id`): one line per step per probed cell (step, t,
-      dt, x_c, rho, V, eps, P, a) to a file or stderr, JSON lines or CSV
-- [ ] Tests: the probed values equal the dump's at the last step; no probe
-      changes nothing (dump byte-identical); a bad id is rejected
+`tests/unit/test_driver.cpp`. The `roadmap.md` design gap. Also changed,
+outside the list: `src/app/CMakeLists.txt` (`app` links nlohmann_json for
+the lines), `README.md` and the `roadmap.md` gap entry.
+- [x] `hydro_run deck.json [dump.json] --probe cell_id` (repeatable) and
+      `--probe-node node_id`, to `--probe-out PATH` or stderr, as JSON
+      lines: per probed cell (step, t, dt, centroid, V, m, rho, velocity,
+      P, eps, a), then per probed node (position and the step's V_p), at
+      step 0 and after every step. `app::Probes` in `driver.hpp`, keys in
+      `deck_format.md` ("Probes")
+- [x] Tests: the probed values equal the dump's at the last step, exactly;
+      the dump is byte-identical with and without probes; an id outside the
+      mesh fails the run before the first step, a non-id is a usage error.
+      The v0.2 decks' dumps (Sod, Noh, Saltzman, Taylor-Green, both
+      orders) are byte-identical to the previous build's, with and without
+      probes
 
 ## Task 18 — Cost scaling check
 Files: none required (a report in `NOTES.md` and this backlog); any fix
