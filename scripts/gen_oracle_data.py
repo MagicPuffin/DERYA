@@ -41,6 +41,43 @@ def gen_sod():
     }
 
 
+def gen_leblanc():
+    """LeBlanc shock tube (decisions.md, "v0.3 test problems"): gamma = 5/3,
+    (rho, eps) = (1, 0.1) for x < 3 and (1e-3, 1e-7) beyond, at rest, x in
+    [0, 9], t = 6. Sampled every 0.005 (the 900-cell mesh's cell is 0.01).
+    IGEOS_Solver gives no jump positions, so they come from its own star
+    state: the contact moves at u*, the shock at rho2 u* / (rho2 - rho_r)
+    (mass conservation across it, the gas ahead at rest). The rarefaction's
+    ends are continuous, not jumps."""
+    gamma, t, x0 = 5.0 / 3.0, 6.0, 3.0
+    rho_l, eps_l, rho_r, eps_r = 1.0, 0.1, 1e-3, 1e-7
+    solver = IGEOS_Solver(xmin=0.0, xd0=x0, xmax=9.0, gl=gamma, gr=gamma,
+                          rl=rho_l, ul=0.0, pl=(gamma - 1.0) * rho_l * eps_l,
+                          rr=rho_r, ur=0.0, pr=(gamma - 1.0) * rho_r * eps_r)
+    x = np.linspace(0.0, 9.0, 1801)
+    with warnings.catch_warnings():
+        # Its JWL branch divides by zero for an ideal gas.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        result = solver(x, t=t)
+        # Between the contact and the shock at t = 6 (6.731, 7.975).
+        star = solver(np.array([7.5]), t=t)
+    u_star, rho_2 = float(star["velocity"][0]), float(star["density"][0])
+    jumps = [x0 + u_star * t, x0 + rho_2 * u_star / (rho_2 - rho_r) * t]
+    return {
+        "case": "leblanc",
+        "description": "LeBlanc shock tube, ExactPack IGEOS_Solver, gamma = 5/3, "
+                       "(rho, eps) = (1, 0.1) | (1e-3, 1e-7) at x = 3",
+        "t": t,
+        "gamma": gamma,
+        "x": x.tolist(),
+        "density": result["density"].tolist(),
+        "pressure": result["pressure"].tolist(),
+        "velocity": result["velocity"].tolist(),
+        "specific_internal_energy": result["specific_internal_energy"].tolist(),
+        "jumps": jumps,
+    }
+
+
 def gen_noh():
     """Planar Noh: cold gas, rho0 = 1, u0 = -1 toward a wall at x = 0,
     gamma = 5/3. The shock is at x = t/3 = 0.2 at t = 0.6, with rho = 4,
@@ -104,7 +141,8 @@ CASES = {
     "sod": gen_sod,
     "noh": gen_noh,
     "saltzman": gen_saltzman,
-    # "kidder": ..., "guderley": ... — added as
+    "leblanc": gen_leblanc,
+    # "sedov": ..., "guderley": ... — added as
     # each test lands in the v0.1/v0.2/v0.3 backlog, one CASES entry at a time.
 }
 

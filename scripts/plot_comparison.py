@@ -7,13 +7,16 @@ overlap), over the meshes' current x extent, the oracle as a line, drawn as
 a vertical step at each of the oracle's "jumps". Several dumps (e.g. order 1
 and order 2 of one deck) overlay on the same axes, labeled by --labels. The exact internal energy is the oracle's
 specific_internal_energy, else P / ((gamma - 1) rho) with gamma from
---gamma, the oracle, or 1.4, in that order. Run on demand, not from ctest.
+--gamma, the oracle, or 1.4, in that order. --log puts panels on a log
+scale (LeBlanc's density and pressure span 3 and 9 decades). --xlim narrows
+the x range. Run on demand, not from ctest.
 
 Usage:
   python3 scripts/plot_comparison.py DUMP [DUMP ...]
                                      [--oracle tests/oracle_data/sod.json]
                                      [--labels L ...] [--gamma G]
-                                     [-o comparison.png]
+                                     [--log density pressure ...]
+                                     [--xlim X0 X1] [-o comparison.png]
 """
 import argparse
 import json
@@ -54,6 +57,11 @@ def main():
     parser.add_argument("--gamma", type=float, default=None,
                         help="ideal-gas gamma, for the exact internal energy when "
                              "the oracle has none (default: the oracle's, else 1.4)")
+    parser.add_argument("--log", nargs="+", default=[],
+                        choices=["density", "pressure", "internal_energy"],
+                        help="panels on a log y scale")
+    parser.add_argument("--xlim", type=float, nargs=2, default=None,
+                        help="x range (default: the meshes' current extent)")
     parser.add_argument("-o", "--output", type=pathlib.Path,
                         default=pathlib.Path("comparison.png"))
     args = parser.parse_args()
@@ -82,6 +90,7 @@ def main():
               ("velocity", "velocity_x", oracle["velocity"]),
               ("pressure", "pressure", p_ex),
               ("internal energy", "internal_energy", eps_ex)]
+    log_keys = set(args.log)
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
     for ax, (name, key, exact) in zip(axes.flat, panels):
@@ -91,10 +100,15 @@ def main():
             ax.plot(dump["cells"]["centroid_x"], dump["cells"][key], "o", ms=3,
                     mfc=SERIES[k], mec="white", mew=0.4, label=label, zorder=2)
         ax.set_ylabel(name)
+        if key in log_keys:
+            ax.set_yscale("log")
         ax.grid(alpha=0.3)
-    # The mesh moves: show where the gas is now, not the oracle's whole range.
-    nodes_x = [x for dump in dumps for x in dump["nodes"]["x"]]
-    axes[0, 0].set_xlim(min(nodes_x), max(nodes_x))
+    if args.xlim:
+        axes[0, 0].set_xlim(*args.xlim)
+    else:
+        # The mesh moves: show where the gas is now, not the oracle's whole range.
+        nodes_x = [x for dump in dumps for x in dump["nodes"]["x"]]
+        axes[0, 0].set_xlim(min(nodes_x), max(nodes_x))
     for ax in axes[1]:
         ax.set_xlabel("x")
     axes[0, 0].legend()

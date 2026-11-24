@@ -21,7 +21,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 | Taylor-Green vortex (Dobrev et al.; Georges' thesis Sec. 3.2) | smooth convergence order, distorted cells; needs an energy source | Done (v0.2, Task 14) — order 2 unlimited: L1 pressure 5.98e-4 at 160×160, order 1.95 (thesis 1.94), within 25% of the thesis's Table 3.1(b); ctest 10-40, full table `scripts/taylor_green_convergence.py` |
 | **Kidder ball** | no spurious entropy under isentropic compression | **High** — most relevant to FLARE's actual drive regime |
 | **Guderley converging shock** | converging-shock focusing, cylindrical symmetry | **High** — most relevant to cylindrical implosion geometry |
-| LeBlanc | severe density/pressure jump, Riemann robustness | Medium |
+| LeBlanc | severe density/pressure jump, Riemann robustness | v0.3 (Task 19): runs at both orders, L1 falls, order 2 below order 1; shock position fails the proposed gate (table below) |
 | Coggeshall (pure-hydro subset) | adiabatic self-similar compression | Low — Kidder covers similar ground |
 | Gresho vortex | low-Mach vorticity preservation | Low for v1.0 |
 
@@ -82,6 +82,69 @@ Saltzman: the band is the 20 rows of the skewed mesh. Just behind the
 shock some rows overshoot in pressure, up to 1.77 at order 1 and 1.56 at
 order 2 (exact 4/3); behind that, both orders keep a spread of about ±5%
 in x-velocity and a few percent in rho between rows.
+
+## LeBlanc (Task 19)
+Planar shock tube, gamma = 5/3, (rho, eps) = (1, 0.1) for x < 3 and
+(1e-3, 1e-7) beyond, walls at x = 0 and 9, t = 6 (`decisions.md`, "v0.3
+test problems"; `decks/convergence/leblanc_<n>.json`, n×1×1 cubic cells).
+Exact solution: contact at 6.731, shock at 7.975, rho 4e-3, u 0.622, eps
+0.1933 between them. `convergence.py`'s Riemann solver and ExactPack's
+(`tests/oracle_data/leblanc.json`) agree to 1.1e-11 in density
+(`--check-oracles`). From `python3 scripts/convergence.py --problems leblanc
+--markdown`; "shock" is the last crossing of rho = 2.5e-3:
+
+| Problem | Cells | Order 1 L1 | rate | shock | Order 2 L1 | rate | shock |
+|---|---|---|---|---|---|---|---|
+| LeBlanc | 225 | 8.864e-02 | | 7.719 | 4.125e-02 | | 8.220 |
+| LeBlanc | 450 | 6.727e-02 | 0.40 | 8.159 | 3.177e-02 | 0.38 | 8.369 |
+| LeBlanc | 900 | 4.527e-02 | 0.57 | 8.383 | 1.871e-02 | 0.76 | 8.311 |
+| LeBlanc | 1800 | 3.181e-02 | 0.51 | 8.398 | (not run) | | |
+
+Against the proposed v0.3 gate (`roadmap.md`): every run reaches t = 6
+(item 1), the error falls with resolution at both orders and order 2 is
+below order 1 at every resolution (2, 3). Item 4 **fails**: at 900 cells
+the shock is 0.41 (order 1) and 0.34 (order 2) ahead of 7.975, not within
+0.1. The 1800-cell order-1 run (off the gate, 10.5 min) puts it at 8.398,
+so the offset is not shrinking yet. Costs at 900 cells, optimized, alone:
+order 1 ~2 min (7255 steps), order 2 ~7 min (6614 steps).
+
+![LeBlanc profiles](figures/profiles_leblanc_900.png)
+
+What goes wrong, measured, not tuned:
+- *Too much push behind the contact.* The shocked gas moves too fast: u
+  0.70 behind the shock at 450 cells, 0.67-0.69 at 900, 0.65-0.66 at 1800
+  (order 1; exact 0.622), with P and eps above the exact plateau by the
+  same margin. The plateau state converges, slowly; the shock position
+  integrates the larger overdrive of earlier times, so it converges later. The heavy gas between the
+  rarefaction's tail (x = 5.97) and the contact holds 0.041 of mass,
+  one initial cell at 225 cells and ~4 at 900: those few cells cannot
+  expand down to the exact pressure, and push the light gas harder than
+  p* = 5.16e-4. Total energy is conserved to round-off; the shocked gas's
+  excess energy is ~5e-4 at 450 cells, 0.2% of the 0.3 in the box, which
+  is enough to move a gas 1000 times lighter.
+- *Early lag.* At 225 cells the shock is behind the exact one until
+  t ~ 4 (-0.41 at t = 2 at order 1), while it forms over a few cells; the
+  overdrive then carries it past. At 450 and up the overdrive wins.
+- *Not the timestep:* CFL 0.1 instead of 0.25 at 450 cells (order 1)
+  moves the shock by 0.01.
+- *Order 2* gets the plateau velocity closer (0.628-0.636 at 900) but its
+  shock is still 0.34 ahead, and its plateau has a gradient (u rising
+  towards the shock, eps falling), the overdrive of earlier times.
+- *Contact eps overshoot*, the known one: eps peaks at 0.242 (order 1)
+  and 0.225 (order 2) at 900 cells against 0.1933, and in the first light
+  cells next to the contact density rises to ~9e-3 (exact 4e-3) with eps
+  dropping, the start-up error at the contact.
+- *Robustness, the risks of Task 16:* none hit. The cold gas keeps eps at
+  its 1e-7 exactly (no negative eps, no floor needed), Newton converges in
+  the 1e9 pressure ratio with the global flux scale, SP-V gives a flow
+  that stays exactly 1D (transverse velocity < 1e-15), and the gas ahead
+  of the shock is untouched beyond its precursor (0.30 ahead at 225 cells,
+  order 1).
+
+Whether this is LeBlanc's known slow convergence for Lagrangian schemes on
+a uniform initial mesh, or something in this scheme, is open: a follow-up
+task (`backlog.md`, Task 19b) and a decision on the gate's LeBlanc bound,
+which is not loosened here.
 
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every

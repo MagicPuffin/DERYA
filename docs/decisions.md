@@ -189,8 +189,11 @@ stop and report rather than deciding to override it.
     1e-11): p* = 5.156e-4, u* = 0.6218, rarefaction head at x = 3 - 6 a_L
     = 1 (a_L = 1/3), contact at x = 6.731, shock at x = 7.975 with
     rho = 4e-3 (the strong-shock limit (gamma+1)/(gamma-1) x 1e-3, to 5e-7)
-    and eps = 0.1933 behind it. Solved in place like Sod, no oracle file.
-    Mesh n x 1 x 1, cubic cells.
+    and eps = 0.1933 behind it. Solved in place like Sod in
+    `convergence.py`; Task 19 also wrote an oracle file
+    (`tests/oracle_data/leblanc.json`, ExactPack, every 0.005 with the two
+    jumps) for the ctest and the profile plots, and the two agree to
+    1.1e-11. Mesh n x 1 x 1, cubic cells.
   - *Sedov* (cylindrical): Cartesian quarter plane [0, 1.2]^2, one cell in
     z, symmetry walls on all sides (Maire et al.'s 2D setup and the
     thesis's cube cut to 2D), gamma = 1.4, rho = 1, P = 1e-6, at rest; the
@@ -273,7 +276,8 @@ stop and report rather than deciding to override it.
     reported as the largest spread behind the shock, and plotted as the
     thesis's scatter plots.
   - *Oracles:* closed forms (LeBlanc's Riemann solution, Kidder) are
-    evaluated where used, as Sod is today. Sedov and Guderley come from
+    evaluated where used, as Sod is today (LeBlanc also has an oracle
+    file, as Sod does). Sedov and Guderley come from
     ExactPack via `scripts/gen_oracle_data.py` as fine-sampled radial
     profiles with their jumps in `tests/oracle_data/`, so neither ctest
     nor `convergence.py` needs ExactPack at run time (ExactPack's Guderley

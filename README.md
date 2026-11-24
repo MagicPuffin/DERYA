@@ -58,8 +58,13 @@ Taylor-Green vortex converges at order ~2
   order: 0.0195), flow still exactly 1D. Noh and Saltzman run at second
   order too, with smaller errors than first order
 - `scripts/convergence.py`: runs Sod, Noh and Saltzman at 50/100/200 cells
-  (`decks/convergence/`) at both orders, tabulates L1 density errors and
-  rates, checks the v0.2 gate and plots error against resolution
+  and LeBlanc at 225/450/900 (`decks/convergence/`) at both orders,
+  tabulates L1 density errors and rates, checks the v0.2 gate (and
+  LeBlanc's shock position) and plots error against resolution
+- LeBlanc shock tube (`decks/leblanc.json`, v0.3): runs at both orders
+  through the 1e9 pressure ratio, errors fall with resolution, but the
+  shock lands 0.3-0.4 ahead of the exact one at 900 cells (see
+  [docs/vv_catalog.md](docs/vv_catalog.md))
 - Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
   energy source that keeps it stationary): the second-order scheme
   converges at order ~2 on this smooth flow (L1 pressure order 1.95 at
@@ -94,8 +99,9 @@ To run Sod and plot it (the plot needs the Python environment below):
 python3 scripts/plot_comparison.py sod_final.json -o sod.png
 ```
 
-For Noh or Saltzman, use `decks/<case>.json` and add
-`--oracle tests/oracle_data/<case>.json`.
+For Noh, Saltzman or LeBlanc, use `decks/<case>.json` and add
+`--oracle tests/oracle_data/<case>.json` (for LeBlanc also
+`--log density pressure`).
 
 Oracle data (exact solutions from ExactPack) is committed under
 `tests/oracle_data/`. To regenerate it:

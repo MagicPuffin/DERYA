@@ -584,23 +584,54 @@ Also changed: the "78 min" in Task 14, the v0.3 scope note and
       bit-identical. Not a general optimization pass. Nothing is: no
       follow-up
 
-## Task 19 — LeBlanc shock tube
+## Task 19 — LeBlanc shock tube — ✅ DONE (shock position fails the proposed gate)
 Files: `decks/leblanc.json` and `decks/convergence/leblanc_*.json`,
 `scripts/gen_oracle_data.py` (+ `tests/oracle_data/leblanc.json`) or an
 exact solver in `scripts/convergence.py`, `tests/unit/test_driver.cpp`,
 `docs/vv_catalog.md`. No new physics: the first v0.3 problem because it
-only needs a deck.
-- [ ] Decks at the Task 16 resolutions (cubic slab cells), both orders run
-      by the script
-- [ ] Exact solution (ExactPack `riemann`), checked against an independent
-      evaluation; `convergence.py` family `leblanc`
-- [ ] Tests: runs to t = 6 at both orders; shock position and the plateau
-      density within Task 16's bounds; the gate on the cheap resolutions
-- [ ] Risks: the 1e9 pressure ratio and the cold right state (the
+only needs a deck. Both of the exact-solution options were taken (the
+C++ test needs the oracle file). Also changed: `scripts/plot_comparison.py`
+(`--log`, `--xlim`), `README.md`, `docs/deck_format.md`, `decisions.md`.
+- [x] Decks at the Task 16 resolutions (cubic slab cells), both orders run
+      by the script. `decks/leblanc.json` is the 225-cell one
+- [x] Exact solution (ExactPack `riemann`), checked against an independent
+      evaluation; `convergence.py` family `leblanc` (sizes 225/450/900 by
+      default). ExactPack's `IGEOS_Solver` in `tests/oracle_data/leblanc.json`
+      (every 0.005, jumps from its star state) and `sod_exact` with the
+      LeBlanc states agree to 1.1e-11 (`--check-oracles`)
+- [x] Tests: runs to t = 6 at both orders; shock position and the plateau
+      density within Task 16's bounds; the gate on the cheap resolutions.
+      ctest (`hydro_run: LeBlanc shock tube at both orders`, ~30 s) runs
+      225 cells at both orders: mass and energy conserved, flow 1D, no eps
+      below the initial 1e-7, the gas ahead untouched, shock and plateau at
+      their measured values, order 2's L1 below order 1's. Task 16's
+      shock bound applies at 900 cells, in `convergence.py`, and **fails**:
+      shock at 8.383 (order 1) and 8.311 (order 2), not within 0.1 of
+      7.975 (8.398 at 1800 cells, order 1). Gate items 1-3 pass (L1 order
+      1 8.86e-2, 6.73e-2, 4.53e-2; order 2 4.13e-2, 3.18e-2, 1.87e-2)
+- [x] Risks: the 1e9 pressure ratio and the cold right state (the
       negative-eps tolerance, the Newton flux scale, SP-V near zero
-      velocity); the contact's eps overshoot. Report, don't tune
-- [ ] Profile overlay: rho, u, P, eps against x over the exact solution,
-      both orders at 900 cells (log scale for rho and P)
+      velocity); the contact's eps overshoot. Report, don't tune. None of
+      the robustness risks was hit; the eps overshoot is there (0.242 and
+      0.225 at 900 cells, exact 0.1933). The shocked gas is overdriven (u
+      0.67-0.69 at 900 cells, order 1, exact 0.622), converging slowly;
+      the few heavy cells behind the contact are the likely cause
+      (`vv_catalog.md`, "LeBlanc")
+- [x] Profile overlay: rho, u, P, eps against x over the exact solution,
+      both orders at 900 cells (log scale for rho and P):
+      `docs/figures/profiles_leblanc_900.png`
+
+## Task 19b — LeBlanc shock position (proposed, not scheduled)
+From Task 19: at 900 cells the shock is 0.34-0.41 ahead of the exact one
+and the offset is not shrinking at 1800 cells, while the plateau state
+converges slowly. Find out whether this is the known slow convergence of a
+Lagrangian scheme on a uniform initial mesh or a defect here, before the
+gate's LeBlanc bound is decided. Candidates: order 1 at 3600 cells (~45
+min) for the trend; a mesh refined just left of x = 3 (the heavy plateau's
+0.041 of mass starts in [2.959, 3]; needs a graded-mesh deck key) to test
+the under-resolution explanation; literature LeBlanc results for
+cell-centered Lagrangian schemes at these resolutions. No change to the scheme to pass
+the gate; any fix is its own task.
 
 ## Task 20 — Polar mesh mapping
 Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,

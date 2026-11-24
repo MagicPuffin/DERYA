@@ -730,6 +730,100 @@ TEST_CASE("hydro_run: Saltzman piston against the exact solution", "[app][integr
   CHECK(l1 < 0.05);
 }
 
+TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") {
+  // decks/leblanc.json (= decks/convergence/leblanc_225.json): gamma = 5/3,
+  // (rho, eps) = (1, 0.1) for x < 3 and (1e-3, 1e-7) beyond, walls at
+  // x = 0 and 9, 225x1x1 cubic cells, to t = 6. Compared with
+  // tests/oracle_data/leblanc.json: contact at 6.731, shock at 7.975, rho
+  // 4e-3 between them. The v0.3 gate's shock bound (0.1 of 7.975) is for
+  // the 900-cell mesh, in scripts/convergence.py; at 225 cells the bounds
+  // here are the measured values. Measured: shock at 7.719 (order 1) and
+  // 8.220 (order 2), plateau rho 4.84e-3 and 4.00e-3, L1 8.86e-2 and
+  // 4.13e-2; about 5 s and 25 s, optimized. The shock lags at first (it
+  // forms over a few cells) and then runs too fast: the heavy gas behind
+  // the contact is about one cell of mass here, too coarse for the end of
+  // the rarefaction, so it keeps too much pressure and pushes the light
+  // gas too hard (u 0.70 behind the shock, exact 0.622). vv_catalog.md,
+  // "LeBlanc".
+  const json oracle = read_oracle("leblanc");
+  REQUIRE(oracle["t"].get<double>() == 6.0);
+  const double area = 0.04 * 0.04;
+  const std::array<double, 2> measured_shock = {7.719, 8.220};
+  const std::array<double, 2> measured_plateau = {4.84e-3, 4.00e-3};
+  std::array<double, 2> l1{};
+  for (const int order : {1, 2}) {
+    INFO("order " << order);
+    json deck = read_deck_json("leblanc");
+    deck["scheme"] = {{"order", order}};
+    const std::string name = "leblanc_order" + std::to_string(order);
+    const auto deck_path = (std::filesystem::temp_directory_path() / (name + ".json")).string();
+    {
+      std::ofstream out(deck_path);
+      out << deck.dump();
+    }
+    const json dump = run_hydro_deck(deck_path, name);
+    std::filesystem::remove(deck_path);
+    CHECK(dump["t"].get<double>() == 6.0);
+    const auto& cells = dump["cells"];
+    const auto x = cells["centroid_x"].get<std::vector<double>>();
+    const auto mass = cells["mass"].get<std::vector<double>>();
+    const auto rho = cells["density"].get<std::vector<double>>();
+    const auto u = cells["velocity_x"].get<std::vector<double>>();
+    const auto vy = cells["velocity_y"].get<std::vector<double>>();
+    const auto vz = cells["velocity_z"].get<std::vector<double>>();
+    const auto eps = cells["internal_energy"].get<std::vector<double>>();
+    REQUIRE(rho.size() == 225);
+
+    // Walls do no work: mass and total energy stay the initial ones, per
+    // unit cross-section 3 + 6e-3 and 0.3 + 6e-10.
+    double m = 0.0, e = 0.0;
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      m += mass[c];
+      e += mass[c] * (eps[c] + 0.5 * (u[c] * u[c] + vy[c] * vy[c] + vz[c] * vz[c]));
+    }
+    CHECK_THAT(m / area, WithinRel(3.006, 1e-12));
+    CHECK_THAT(e / area, WithinRel(0.3 + 6e-10, 1e-12));
+
+    // Shock position: the last crossing of rho = 2.5e-3, between the
+    // centroids of the last cell above it and the next (as convergence.py).
+    std::size_t last = 0;
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      CHECK_THAT(vy[c], WithinAbs(0.0, 1e-12));
+      CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+      // The cold gas never goes below its initial eps (no negative eps).
+      CHECK(eps[c] > 0.99e-7);
+      if (rho[c] > 2.5e-3) last = c;
+    }
+    REQUIRE(last + 1 < rho.size());
+    const double shock = x[last] + (rho[last] - 2.5e-3) / (rho[last] - rho[last + 1]) *
+                                       (x[last + 1] - x[last]);
+    // From 0.5 ahead of the shock, the gas is untouched (order 1's
+    // precursor reaches 0.30 ahead of it, order 2's 0.08).
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      if (x[c] < shock + 0.5) continue;
+      INFO("cell " << c << " at x = " << x[c]);
+      CHECK(rho[c] == 1e-3);
+      CHECK(u[c] == 0.0);
+    }
+    // Mass-weighted density of the shocked plateau: the cells from 0.2
+    // behind the shock to 1 behind it.
+    double m_sum = 0.0, rho_sum = 0.0;
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      if (x[c] > shock - 1.0 && x[c] < shock - 0.2) {
+        m_sum += mass[c];
+        rho_sum += mass[c] * rho[c];
+      }
+    }
+    l1[order - 1] = l1_density_error(dump, oracle, area);
+    INFO("shock at " << shock << ", plateau rho " << rho_sum / m_sum << ", L1 "
+         << l1[order - 1]);
+    CHECK_THAT(shock, WithinAbs(measured_shock[order - 1], 0.02));
+    CHECK_THAT(rho_sum / m_sum, WithinRel(measured_plateau[order - 1], 0.02));
+  }
+  // The v0.3 gate's item 3 at this resolution: order 2 below order 1.
+  CHECK(l1[1] < l1[0]);
+}
+
 namespace {
 
 // Pressure errors of a Taylor-Green run against the exact (initial)

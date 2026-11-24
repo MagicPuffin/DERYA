@@ -8,8 +8,9 @@ stderr. A failed run exits with status 1 and reports the step and time
 where it failed. Examples: [decks/sod.json](../decks/sod.json),
 [decks/noh.json](../decks/noh.json),
 [decks/saltzman.json](../decks/saltzman.json),
-[decks/taylor_green.json](../decks/taylor_green.json). The convergence families, the
-same problems at 50/100/200 cells, are in
+[decks/taylor_green.json](../decks/taylor_green.json),
+[decks/leblanc.json](../decks/leblanc.json). The convergence families, the
+same problems at 50/100/200 cells (LeBlanc 225/450/900), are in
 [decks/convergence/](../decks/convergence/); run them with
 `python3 scripts/convergence.py`.
 
@@ -90,7 +91,8 @@ not a non-negative integer is a usage error (status 2). Each step with a
 probed cell costs one more geometry and thermo pass over the mesh.
 
 To compare a dump with an exact solution:
-`python3 scripts/plot_comparison.py DUMP [DUMP ...] [--oracle FILE] [--labels L ...] [--gamma G] [-o PNG]`
+`python3 scripts/plot_comparison.py DUMP [DUMP ...] [--oracle FILE] [--labels L ...] [--gamma G] [--log PANEL ...] [--xlim X0 X1] [-o PNG]`
 (defaults: the Sod oracle, the file names as labels, the oracle's gamma or
-1.4, `comparison.png`). Up to four dumps overlay, e.g. order 1 and order 2
+1.4, linear axes, the meshes' extent, `comparison.png`; `--log` takes
+`density`, `pressure`, `internal_energy`). Up to four dumps overlay, e.g. order 1 and order 2
 of one deck.
