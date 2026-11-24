@@ -39,7 +39,8 @@ drive coupling, burn physics, any formal documentation/review process.
   reworded (agreed 2026-10-25): rates on shocked problems are <= 1 for any
   scheme, so order 2 is shown on a smooth problem instead.
 - **Debug/probe tooling** — a `--probe cell_id` flag to dump full state for
-  one cell/node across timesteps. Cheap, not yet added; the reference paper's
+  one cell/node across timesteps. Cheap, not yet added (now `backlog.md`
+  Task 17); the reference paper's
   own authors needed exactly this to catch their triple-point oscillation bug.
 - **Environment reproducibility** — `docs/SETUP.md` covers this incrementally;
   keep it current as new gotchas are hit (already has 4).

@@ -7,6 +7,7 @@ Update the checkboxes as tasks land.
   (from `roadmap.md`): Sod, Noh, Saltzman pass at 1 resolution, no AMR, no
   p4est.
 - **v0.2** (Tasks 9-15, done): second-order extension, paper Sec. 2.3.
+- **v0.3** (Tasks 16-25, below): Sedov, Kidder, Guderley, LeBlanc, in 2D.
 
 ## Task 0 — Repo & toolchain bootstrap — ✅ DONE
 - [x] CMake skeleton, Catch2 v3.7.1 + nlohmann::json v3.11.3 via FetchContent
@@ -56,9 +57,8 @@ Update the checkboxes as tasks land.
 - [x] Outflow BC: `apply_pressure_bcs()`, prescribed pressure P* = owner
       cell pressure, `B_p -= P* S_pf n_pf`. Test includes a uniform state at
       rest staying at rest under outflow + symmetry. Needed for Sod
-- [ ] (Kidder's prescribed-motion BC waits for its own task batch; a fixed
-      pressure P* (free surface) is a one-line extension of the outflow BC
-      when a test needs it)
+- [ ] (Kidder's boundary waits for its own task batch, now Task 21: a
+      prescribed, time-dependent pressure, an extension of the outflow BC)
 
 ## Task 4 — Core Lagrangian solver (`src/hydro/`) — ✅ DONE
 First-order EUCCLHYD step, paper Sec. 2.2, in `src/hydro/hydro.{hpp,cpp}`
@@ -464,6 +464,189 @@ tolerance, below; the task named the fix but not the file).
 - [ ] Not done (optional): the `--probe cell_id` flag; nothing in this task
       needed it. Still a `roadmap.md` design gap
 
-## After Task 15
-v0.2 is done when the gate agreed in Task 9 is met. The v0.3 backlog
-(Sedov, Kidder, Guderley, LeBlanc) gets written then.
+# v0.3 — Sedov, Kidder, Guderley, LeBlanc (paper Sec. 6.4, thesis Ch. 3)
+
+Gate (`roadmap.md`): "all pass, convergence documented". As in v0.2, each
+problem runs at 3 resolutions at both orders through
+`scripts/convergence.py`, and Task 16 turns "pass" into a bar per problem.
+
+Scope, proposed here and settled in Task 16: the **cylindrical** versions
+in 2D (thin slab, one cell in z), the DoD's "2D at 3+ resolutions". The
+thesis runs Sedov on a 3D cube and Kidder on an eighth of a spherical
+shell; spherical and genuinely 3D runs belong to v0.5 (DoD item 2), and at
+today's cost (Taylor-Green 160x160 at order 2: 78 min) a 3D cube at 3
+resolutions would take hours. Every task keeps the v0.2 decks' results
+exactly (`order = 1` and `order = 2` dumps of Sod, Noh, Saltzman and
+Taylor-Green byte-identical), unless a task says otherwise and why.
+
+## Task 16 — Decide the v0.3 setups
+Files: `docs/decisions.md` (new "v0.3 test problems" entry), this backlog,
+`docs/roadmap.md` (gate wording). No code. Read first: thesis Secs. 3.5
+(Sedov) and 3.6 (Kidder), paper Sec. 6.4, Maire et al. 2007 (the thesis's
+ref. [93], the 2D Kidder setup), ExactPack's `sedov`, `guderley` and
+`riemann` solvers (all in `.venv`; ExactPack has no Kidder).
+- [ ] Per problem: geometry, domain, constants, final time, boundaries,
+      mesh (Cartesian quarter plane or polar), and the reference. Proposed:
+  - *LeBlanc*: 1D shock tube on a slab, gamma = 5/3, (rho, eps) = (1, 0.1)
+    for x < 3 and (1e-3, 1e-7) beyond, x in [0, 9], t = 6 (check the
+    constants against the literature before writing the deck)
+  - *Sedov* (cylindrical): Cartesian quarter plane [0, 1.2]^2 x one cell,
+    as the thesis's cube in 2D, (rho, P) = (1, 1e-6), gamma = 1.4, energy
+    in the origin cell; E0 = 0.311357 per unit length for the full plane
+    (ExactPack: shock at r = 1 at t = 1), so a quarter of it times the
+    slab's thickness here. Alternative: a polar mesh (Task 20)
+  - *Kidder* (cylindrical shell): polar mesh, quarter shell r in [0.9, 1],
+    symmetry walls on the two planes, the exact pressure on the inner and
+    outer surfaces (thesis Eqs. 3.10-3.14 written for 2D). Check, before
+    any code, the gamma the 2D solution needs (Kidder's homogeneous
+    compression is said to need gamma = 1 + 2/d, so 2 in 2D and 5/3 in
+    3D; the thesis's 3D case uses 5/3) and the 2D density profile and
+    t_foc. Final time tau_1 (half compression), and tau_2 if it holds
+  - *Guderley* (cylindrical): converging shock into cold gas. Decide the
+    start (from the exact solution at some t < 0, sampled onto the mesh),
+    the outer boundary (far enough not to matter, or prescribed from the
+    exact solution), the window compared (before the collapse, after the
+    reflection, or both), gamma, and whether ExactPack's solver covers it
+- [ ] Mesh: Cartesian or polar per problem. A polar mesh has curved
+      boundaries: `wall_normals` counts non-coplanar faces at a node as
+      separate walls, so a curved *symmetry* wall would pin its nodes like
+      an edge. Proposed: curved boundaries only as pressure boundaries
+      (Kidder), walls only on planes; record it as a decision
+- [ ] Error metric: L1 of density against the exact profile at each cell's
+      radius (centroid), per unit length of slab, as for v0.2; for Kidder
+      also the inner and outer radii against h(t) r. Symmetry: the spread
+      of density at equal radius (the thesis's scatter plots)
+- [ ] Oracles: fine-sampled exact profiles with their jumps in
+      `tests/oracle_data/`, from `scripts/gen_oracle_data.py` (Tier 2), so
+      neither ctest nor `convergence.py` needs ExactPack at run time;
+      closed forms (Kidder, LeBlanc's Riemann solution if exact) may be
+      evaluated in place, as Sod is today
+- [ ] Gate wording, agreed with Luca and written into `roadmap.md`: what
+      "pass" means per problem (e.g. order 2 below order 1 at every
+      resolution, rates <= 1 documented, shock position and plateau within
+      stated bounds; symmetry spread bounded)
+- [ ] Resolutions within a cost budget (after Task 18's measurements)
+- [ ] Known risks to record: the thesis's SP limiter failed on Sedov (node
+      crossing on the axes, non-convex cells at 45 degrees, also at first
+      order in 3D) where its MM limiter works; Kidder's exponential growth
+      of mesh defects near the outer surface (thesis Sec. 3.6); LeBlanc's
+      energy overshoot at the contact (a known Lagrangian artifact)
+
+## Task 17 — `--probe` debug flag
+Files: `src/app/{main,driver}.{hpp,cpp}`, `docs/deck_format.md`,
+`tests/unit/test_driver.cpp`. The `roadmap.md` design gap.
+- [ ] `hydro_run deck.json [dump.json] --probe cell_id` (repeatable; maybe
+      `--probe-node node_id`): one line per step per probed cell (step, t,
+      dt, x_c, rho, V, eps, P, a) to a file or stderr, JSON lines or CSV
+- [ ] Tests: the probed values equal the dump's at the last step; no probe
+      changes nothing (dump byte-identical); a bad id is rejected
+
+## Task 18 — Cost scaling check
+Files: none required (a report in `NOTES.md` and this backlog); any fix
+goes to its own task. Measured in Task 14: Taylor-Green at order 2, 40x40
+-> 80x80 cost 8.3x (4x cells, 2x steps: expected 8x), 80x80 -> 160x160
+cost 24x. Part of that run shared the machine, so measure again first.
+- [ ] Time one step (both orders) at 40x40, 80x80, 160x160 and 320x320
+      Taylor-Green, and the parts of it (geometry, thermo, nodal solves and
+      Newton iteration counts, gradients, limiter, corner forces): is any
+      part superlinear in the number of cells, or does Newton take more
+      iterations on finer meshes?
+- [ ] If something is superlinear, a follow-up task to fix it, with results
+      bit-identical. Not a general optimization pass
+
+## Task 19 — LeBlanc shock tube
+Files: `decks/leblanc.json` and `decks/convergence/leblanc_*.json`,
+`scripts/gen_oracle_data.py` (+ `tests/oracle_data/leblanc.json`) or an
+exact solver in `scripts/convergence.py`, `tests/unit/test_driver.cpp`,
+`docs/vv_catalog.md`. No new physics: the first v0.3 problem because it
+only needs a deck.
+- [ ] Decks at the Task 16 resolutions (cubic slab cells), both orders run
+      by the script
+- [ ] Exact solution (ExactPack `riemann`), checked against an independent
+      evaluation; `convergence.py` family `leblanc`
+- [ ] Tests: runs to t = 6 at both orders; shock position and the plateau
+      density within Task 16's bounds; the gate on the cheap resolutions
+- [ ] Risks: the 1e9 pressure ratio and the cold right state (the
+      negative-eps tolerance, the Newton flux scale, SP-V near zero
+      velocity); the contact's eps overshoot. Report, don't tune
+
+## Task 20 — Polar mesh mapping
+Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
+`src/app/driver.cpp` (if the mapping needs it), `docs/deck_format.md`,
+`tests/unit/test_{mesh,bc,driver}.cpp`.
+- [ ] `mesh.mapping: "polar"`: the structured mesh's x range is r, its y
+      range is theta (unit to decide in Task 16), z unchanged; nodes at
+      (r cos theta, r sin theta, z). Sides keep their tags (x_min = inner
+      surface, x_max = outer, y_min/y_max the two radial planes)
+- [ ] Tests: total volume = the annular sector's (to the polygonal
+      approximation), face vectors close per cell (GCL), wall normals on
+      the theta = 0 and theta = pi/2 planes are the plane normals, a
+      uniform state at rest stays at rest with walls and outflow
+
+## Task 21 — Prescribed time-dependent pressure boundary
+Files: `src/bc/bc.{hpp,cpp}`, `src/hydro/{hydro,scheme}.{hpp,cpp}`,
+`src/app/driver.cpp`, `src/io/deck.{hpp,cpp}`, `docs/deck_format.md`,
+tests.
+- [ ] A `Pressure` boundary type with P*(t) given (a constant, or a named
+      law such as Kidder's Eqs. 3.13-3.14), where today's outflow has P* =
+      P_c. The steps then need the time: each stage at its own time
+      (predictor at t^n, corrector stage at t^n + dt; check against thesis
+      Sec. 2.6.1), decided in the task and recorded
+- [ ] Tests: a constant P* equal to the gas pressure keeps a state at rest;
+      a constant P* above it pushes the boundary inward at the acoustic
+      rate (first step, by hand); P*(t) evaluated at the right stage times
+      (red when the corrector uses t^n)
+
+## Task 22 — Sedov (cylindrical)
+Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.cpp` (the
+energy-spike initialization), `scripts/{gen_oracle_data,convergence}.py`,
+oracle data, tests, `docs/vv_catalog.md`.
+- [ ] Initialization: total energy E deposited in the cell(s) touching the
+      origin (a deck key, e.g. `initial.energy_spike: {"at": [0,0,0],
+      "energy": E}`), the rest from the background
+- [ ] Oracle: ExactPack `CylindricalSedov` at t = 1, fine-sampled, with
+      the shock as a jump; radial L1 metric in `convergence.py`
+- [ ] Tests: total energy conserved to round-off; shock radius and peak
+      density within Task 16's bounds; symmetry spread; the gate on the
+      cheap resolutions
+- [ ] Risk (thesis Sec. 3.5): node crossing along the axes and non-convex
+      cells at 45 degrees. If SP-V does not hold, the MM limiter (thesis
+      Sec. 2.4) becomes its own task
+
+## Task 23 — Kidder isentropic compression (cylindrical shell)
+Files: decks, deck/driver support for the initial profile (as
+`initial.taylor_green` was done), the Task 21 pressure law,
+`scripts/convergence.py`, tests, `docs/vv_catalog.md`.
+- [ ] Initial profile (thesis Eq. 3.10 in its 2D form) and boundary
+      pressures (Eqs. 3.13-3.14), on the polar mesh (Task 20)
+- [ ] Exact solution in closed form: R(r, t) = h(t) r, rho and P from the
+      isentrope; errors on density and on the inner/outer radii
+- [ ] Tests: entropy P / rho^gamma stays 1 to a stated bound (isentropic);
+      radii within bounds at tau_1; the gate on the cheap resolutions
+- [ ] Risk (thesis Sec. 3.6): exponential growth of mesh defects near the
+      outer surface. A quarter shell on a polar mesh has no triple point,
+      unlike the thesis's 3D mesh, so tau_1 should hold
+
+## Task 24 — Guderley converging shock (cylindrical)
+Files: decks, deck/driver support for an initial radial profile from a
+table (e.g. `initial.radial_profile: "<oracle file>"`), oracle data,
+`scripts/convergence.py`, tests, `docs/vv_catalog.md`.
+- [ ] Setup per Task 16 (start time, outer boundary, window compared)
+- [ ] Tests: shock radius against the exact trajectory over the window,
+      density behind it within bounds, symmetry spread; the gate on the
+      cheap resolutions
+- [ ] Risk: the axis at r = 0 on a polar mesh (degenerate cells) or a
+      Cartesian mesh's grid imprinting near the focus; decided in Task 16
+
+## Task 25 — v0.3 acceptance
+Files: `scripts/convergence.py` (or its successor `make_report.py`),
+`docs/{vv_catalog,roadmap}.md`, `README.md`, figures.
+- [ ] All four families in the convergence table and figure, the gate as
+      worded in Task 16, rates documented in `vv_catalog.md`
+- [ ] `make_report.py` (DoD item 6): one command for every V&V table and
+      plot so far (v0.2 shock problems, Taylor-Green, v0.3), the
+      expensive runs behind a flag
+- [ ] v0.4's backlog (p4est, AMR) gets written after this task
+
+## After Task 25
+v0.3 is done when the gate agreed in Task 16 is met.
