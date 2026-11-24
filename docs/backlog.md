@@ -479,58 +479,53 @@ resolutions would take hours. Every task keeps the v0.2 decks' results
 exactly (`order = 1` and `order = 2` dumps of Sod, Noh, Saltzman and
 Taylor-Green byte-identical), unless a task says otherwise and why.
 
-## Task 16 — Decide the v0.3 setups
+## Task 16 — Decide the v0.3 setups — ✅ DONE (gate wording pending Luca)
 Files: `docs/decisions.md` (new "v0.3 test problems" entry), this backlog,
-`docs/roadmap.md` (gate wording). No code. Read first: thesis Secs. 3.5
-(Sedov) and 3.6 (Kidder), paper Sec. 6.4, Maire et al. 2007 (the thesis's
-ref. [93], the 2D Kidder setup), ExactPack's `sedov`, `guderley` and
-`riemann` solvers (all in `.venv`; ExactPack has no Kidder).
-- [ ] Per problem: geometry, domain, constants, final time, boundaries,
-      mesh (Cartesian quarter plane or polar), and the reference. Proposed:
-  - *LeBlanc*: 1D shock tube on a slab, gamma = 5/3, (rho, eps) = (1, 0.1)
-    for x < 3 and (1e-3, 1e-7) beyond, x in [0, 9], t = 6 (check the
-    constants against the literature before writing the deck)
-  - *Sedov* (cylindrical): Cartesian quarter plane [0, 1.2]^2 x one cell,
-    as the thesis's cube in 2D, (rho, P) = (1, 1e-6), gamma = 1.4, energy
-    in the origin cell; E0 = 0.311357 per unit length for the full plane
-    (ExactPack: shock at r = 1 at t = 1), so a quarter of it times the
-    slab's thickness here. Alternative: a polar mesh (Task 20)
-  - *Kidder* (cylindrical shell): polar mesh, quarter shell r in [0.9, 1],
-    symmetry walls on the two planes, the exact pressure on the inner and
-    outer surfaces (thesis Eqs. 3.10-3.14 written for 2D). Check, before
-    any code, the gamma the 2D solution needs (Kidder's homogeneous
-    compression is said to need gamma = 1 + 2/d, so 2 in 2D and 5/3 in
-    3D; the thesis's 3D case uses 5/3) and the 2D density profile and
-    t_foc. Final time tau_1 (half compression), and tau_2 if it holds
-  - *Guderley* (cylindrical): converging shock into cold gas. Decide the
-    start (from the exact solution at some t < 0, sampled onto the mesh),
-    the outer boundary (far enough not to matter, or prescribed from the
-    exact solution), the window compared (before the collapse, after the
-    reflection, or both), gamma, and whether ExactPack's solver covers it
-- [ ] Mesh: Cartesian or polar per problem. A polar mesh has curved
-      boundaries: `wall_normals` counts non-coplanar faces at a node as
-      separate walls, so a curved *symmetry* wall would pin its nodes like
-      an edge. Proposed: curved boundaries only as pressure boundaries
-      (Kidder), walls only on planes; record it as a decision
-- [ ] Error metric: L1 of density against the exact profile at each cell's
-      radius (centroid), per unit length of slab, as for v0.2; for Kidder
-      also the inner and outer radii against h(t) r. Symmetry: the spread
-      of density at equal radius (the thesis's scatter plots)
-- [ ] Oracles: fine-sampled exact profiles with their jumps in
-      `tests/oracle_data/`, from `scripts/gen_oracle_data.py` (Tier 2), so
-      neither ctest nor `convergence.py` needs ExactPack at run time;
-      closed forms (Kidder, LeBlanc's Riemann solution if exact) may be
-      evaluated in place, as Sod is today
-- [ ] Gate wording, agreed with Luca and written into `roadmap.md`: what
-      "pass" means per problem (e.g. order 2 below order 1 at every
-      resolution, rates <= 1 documented, shock position and plateau within
-      stated bounds; symmetry spread bounded)
-- [ ] Resolutions within a cost budget (after Task 18's measurements)
-- [ ] Known risks to record: the thesis's SP limiter failed on Sedov (node
-      crossing on the axes, non-convex cells at 45 degrees, also at first
-      order in 3D) where its MM limiter works; Kidder's exponential growth
-      of mesh defects near the outer surface (thesis Sec. 3.6); LeBlanc's
-      energy overshoot at the contact (a known Lagrangian artifact)
+`docs/roadmap.md` (proposed gate). No code. Read: thesis Secs. 3.5-3.6,
+paper Sec. 6.4 (spherical Sedov on an eighth-sphere AMR mesh, so v0.4/v0.5
+parity, not v0.3), ExactPack's `sedov`, `guderley`, `riemann`. Not read:
+Maire et al. 2007 (the thesis's [93]), not available here; the 2D Kidder
+constants were derived instead (below).
+- [x] Per problem: geometry, domain, constants, final time, boundaries,
+      mesh and reference, all in `decisions.md`. Corrections to the
+      proposals here:
+  - *LeBlanc*: constants as proposed, checked: ExactPack and
+    `sod_exact` agree to 1e-11; contact at 6.731, shock at 7.975, rho =
+    4e-3 and eps = 0.1933 behind it, at t = 6
+  - *Sedov*: ExactPack's E0 = 0.311357 puts the shock at r = **0.75**,
+    not 1, at t = 1. For r = 1 the quarter plane needs **E = 0.246019 per
+    unit length** (alpha / 4, alpha = 0.984074). Cartesian, not polar
+  - *Kidder*: **gamma = 2** in 2D (derived: h'' h^(d(gamma-1)+1) must be
+    constant, so gamma = 1 + 2/d), t_foc = 0.217945, tau_1 = 0.188746
+    (h = 1/2). The same formula at gamma = 5/3 gives the thesis's 3D
+    t_foc, 0.254345
+  - *Guderley*: gamma = 1.4, ExactPack covers cylindrical (lambda =
+    1.197141); Caramana-Whalen time, shock at r = 1 at t = 0, collapse at
+    t = 0.750024. Start at t = 0 from the exact profile, polar mesh r in
+    [0, 2] with degenerate axis cells, outflow at r = 2, compared on r <=
+    1 at t = 0.6 and t = 0.9
+- [x] Mesh: Cartesian for LeBlanc and Sedov, polar for Kidder and
+      Guderley; theta in degrees in the deck; curved boundaries only as
+      pressure boundaries, walls only on planes
+- [x] Error metric: radial L1 of density per unit length of slab, at the
+      node-average radius; Kidder also the radii and the entropy; symmetry
+      as the density spread per radial bin
+- [x] Oracles: Sedov and Guderley from `gen_oracle_data.py` (Guderley takes
+      ~1 min per time level in ExactPack, so a table is required); LeBlanc
+      and Kidder in closed form, in place
+- [ ] Gate wording: **proposed** in `roadmap.md` ("v0.3 gate"), not yet
+      agreed with Luca. Tasks 19-24 can proceed; the bounds are final once
+      agreed, and are not to be changed after seeing results
+- [ ] Resolutions, provisional until Task 18 measures the cost: LeBlanc
+      225/450/900 x 1 x 1; Sedov 30/60/120 squared; Kidder n_r x n_theta =
+      10x40, 20x80, 40x160; Guderley 50x20, 100x40, 200x80 (r in [0, 2]).
+      Budget: the finest order-2 run of each family within ~15 min alone,
+      optimized; ctest runs the cheap resolutions only (each test <~60 s)
+- [x] Known risks recorded in `decisions.md`: SP limiter on Sedov (node
+      crossing, bowtie hourglass) and Kidder (inner-face oscillations at
+      second order), Kidder's mesh-defect growth, LeBlanc's eps overshoot
+      and cold right state, and the zero-area faces of the polar axis cells
+      (`src/bc/bc.cpp` normalizes face normals unguarded)
 
 ## Task 17 — `--probe` debug flag
 Files: `src/app/{main,driver}.{hpp,cpp}`, `docs/deck_format.md`,
@@ -582,6 +577,13 @@ Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
       approximation), face vectors close per cell (GCL), wall normals on
       the theta = 0 and theta = pi/2 planes are the plane normals, a
       uniform state at rest stays at rest with walls and outflow
+- [ ] r_min = 0 (Guderley): the axis cells are degenerate, their x_min
+      faces have zero area. Zero-area faces skipped in the wall
+      constraints (`src/bc/bc.cpp` normalizes without a check today) and
+      wherever a face normal is normalized; the axis node is pinned by the
+      two walls. Tests: no NaN on a mesh with r_min = 0, volumes positive,
+      a uniform state at rest stays at rest. If this cannot be made clean,
+      Guderley falls back to a Cartesian quarter plane (`decisions.md`)
 
 ## Task 21 — Prescribed time-dependent pressure boundary
 Files: `src/bc/bc.{hpp,cpp}`, `src/hydro/{hydro,scheme}.{hpp,cpp}`,
@@ -603,8 +605,12 @@ energy-spike initialization), `scripts/{gen_oracle_data,convergence}.py`,
 oracle data, tests, `docs/vv_catalog.md`.
 - [ ] Initialization: total energy E deposited in the cell(s) touching the
       origin (a deck key, e.g. `initial.energy_spike: {"at": [0,0,0],
-      "energy": E}`), the rest from the background
-- [ ] Oracle: ExactPack `CylindricalSedov` at t = 1, fine-sampled, with
+      "energy_per_length": E}`; the driver multiplies by the slab
+      thickness), the rest from the background. E = 0.246019 for the
+      quarter plane (shock at r = 1 at t = 1; `decisions.md`)
+- [ ] Oracle: ExactPack `Sedov(geometry=2, eblast=4 x 0.246019)` (not
+      `CylindricalSedov`'s default energy, whose shock is at 0.75) at
+      t = 1, fine-sampled, with
       the shock as a jump; radial L1 metric in `convergence.py`
 - [ ] Tests: total energy conserved to round-off; shock radius and peak
       density within Task 16's bounds; symmetry spread; the gate on the
@@ -617,8 +623,9 @@ oracle data, tests, `docs/vv_catalog.md`.
 Files: decks, deck/driver support for the initial profile (as
 `initial.taylor_green` was done), the Task 21 pressure law,
 `scripts/convergence.py`, tests, `docs/vv_catalog.md`.
-- [ ] Initial profile (thesis Eq. 3.10 in its 2D form) and boundary
-      pressures (Eqs. 3.13-3.14), on the polar mesh (Task 20)
+- [ ] Initial profile (thesis Eq. 3.10, gamma = 2 in 2D) and boundary
+      pressures (Eqs. 3.13-3.14, h^-4), on the polar mesh (Task 20), to
+      tau_1 = 0.188746
 - [ ] Exact solution in closed form: R(r, t) = h(t) r, rho and P from the
       isentrope; errors on density and on the inner/outer radii
 - [ ] Tests: entropy P / rho^gamma stays 1 to a stated bound (isentropic);
@@ -631,12 +638,15 @@ Files: decks, deck/driver support for the initial profile (as
 Files: decks, deck/driver support for an initial radial profile from a
 table (e.g. `initial.radial_profile: "<oracle file>"`), oracle data,
 `scripts/convergence.py`, tests, `docs/vv_catalog.md`.
-- [ ] Setup per Task 16 (start time, outer boundary, window compared)
+- [ ] Setup per Task 16: start at t = 0 (Caramana-Whalen time) from the
+      exact profile sampled at cell radii, polar r in [0, 2], outflow at
+      r = 2, dumps at t = 0.6 and 0.9, compared on r <= 1. The oracle holds
+      the t = 0 profile (initial data) and the two comparison profiles
 - [ ] Tests: shock radius against the exact trajectory over the window,
       density behind it within bounds, symmetry spread; the gate on the
       cheap resolutions
-- [ ] Risk: the axis at r = 0 on a polar mesh (degenerate cells) or a
-      Cartesian mesh's grid imprinting near the focus; decided in Task 16
+- [ ] Risk: the degenerate axis cells (Task 20), and the cold gas ahead
+      of the shock (needs `dt_initial`, as Noh)
 
 ## Task 25 — v0.3 acceptance
 Files: `scripts/convergence.py` (or its successor `make_report.py`),

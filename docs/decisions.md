@@ -175,6 +175,122 @@ stop and report rather than deciding to override it.
     peak rho 4.81 is the wall-heating start-up error, 2nd-3rd cell from the
     wall), so no MM limiter for now; Sedov (v0.3) is the next check.
 
+- **v0.3 test problems**, decided in Task 16. All four run as the
+  *cylindrical* (or planar) problem on a thin slab, one cell in z, with
+  symmetry walls on z; spherical and 3D runs are v0.5. The paper's own
+  Sedov (Sec. 6.4) is spherical on an eighth-sphere AMR mesh, so it is a
+  v0.4/v0.5 parity check, not v0.3. Constants below were checked against
+  ExactPack (`.venv`) or derived here where marked.
+  - *LeBlanc* (planar shock tube): gamma = 5/3, (rho, eps) = (1, 0.1) for
+    x < 3 and (1e-3, 1e-7) beyond, so P = 2/3 x 1e-1 and 2/3 x 1e-10,
+    x in [0, 9], t = 6, at rest, walls at both ends (no wave reaches them
+    by t = 6). The Riemann solution, from ExactPack's `IGEOS_Solver` and
+    from `convergence.py`'s `sod_exact` with these states (they agree to
+    1e-11): p* = 5.156e-4, u* = 0.6218, rarefaction head at x = 3 - 6 a_L
+    = 1 (a_L = 1/3), contact at x = 6.731, shock at x = 7.975 with
+    rho = 4e-3 (the strong-shock limit (gamma+1)/(gamma-1) x 1e-3, to 5e-7)
+    and eps = 0.1933 behind it. Solved in place like Sod, no oracle file.
+    Mesh n x 1 x 1, cubic cells.
+  - *Sedov* (cylindrical): Cartesian quarter plane [0, 1.2]^2, one cell in
+    z, symmetry walls on all sides (Maire et al.'s 2D setup and the
+    thesis's cube cut to 2D), gamma = 1.4, rho = 1, P = 1e-6, at rest; the
+    blast energy goes into the one cell touching the origin as internal
+    energy. ExactPack's `CylindricalSedov` default E0 = 0.311357 is per
+    unit length *for the full plane* and puts the shock at r = 0.75 at
+    t = 1, not 1 (its docstring; checked). For r = 1 at t = 1 the full
+    plane needs E = alpha rho = 0.984074 (ExactPack's alpha for gamma =
+    1.4), so the quarter plane gets **E = 0.246019 per unit length**. The
+    literature's 0.244816 (Maire et al.) puts the shock at r = 0.9988.
+    The deck gives the energy per unit length in z; the driver multiplies
+    by the slab thickness, so the decks differ only in cell counts. Final
+    time t = 1, peak density 6 at the shock (the strong-shock limit).
+    Polar mesh rejected for Sedov: it would need degenerate cells at the
+    origin, where the energy goes, and the Cartesian mesh is the standard
+    2D test of grid imprinting (the thesis's node crossing on the axes).
+  - *Kidder* (cylindrical shell): quarter shell r in [0.9, 1], theta in
+    [0, 90] degrees, polar mesh (Task 20), symmetry walls on the planes
+    theta = 0 and 90, the exact pressure (Task 21) on the inner and outer
+    surfaces: P_b(t) = P0(r_b) h(t)^(-2 gamma / (gamma - 1)) (thesis Eqs.
+    3.13-3.14), with P0(0.9) = 1, P0(1) = 2^gamma. Initial state thesis
+    Eq. 3.10 with rho_inn = 1, rho_out = 2, P = rho^gamma, at rest.
+    *Derived here:* Kidder's homogeneous isentropic compression R = h(t) r
+    in d dimensions needs h'' h^(d (gamma - 1) + 1) = const, and the
+    thesis's h = sqrt(1 - (t / t_foc)^2) has h'' h^3 = -1 / t_foc^2, so
+    **gamma = 1 + 2/d = 2 in 2D** (5/3 in 3D, the thesis's). Eq. 3.10 and
+    Eq. 3.12 for t_foc hold for any d; density scales as h^-d and pressure
+    as h^(-d gamma), which equals the boundary law's h^(-2 gamma/(gamma-1))
+    only at that gamma. With gamma = 2: a_inn^2 = 2, a_out^2 = 4, t_foc =
+    sqrt(0.19 / 4) = 0.217945 (Eq. 3.12 at gamma = 5/3 gives the thesis's
+    0.254345, which checks the formula). Final time **tau_1 = (sqrt 3 / 2)
+    t_foc = 0.188746**, h = 1/2, radii 0.45 and 0.5. tau_2 = 0.99 t_foc is
+    reported if it runs, not gated. Not checked against Maire et al. 2007
+    (the thesis's [93], not available here); the derivation is the check.
+    Closed form evaluated in place, no oracle file.
+  - *Guderley* (cylindrical): ExactPack's `Guderley(geometry=2)` covers it
+    (Lazarus's Table 6.4, lambda = 1.197141 at gamma = 1.4). Its time is
+    Caramana-Whalen's, t = 0.750024322 (t_L + 1): the converging shock is
+    at r = 1 at t = 0 (rho = 6, u = -0.696, P = 0.581 just behind it) and
+    reaches the axis at **t_c = 0.750024**, at r_s(t) = (1 - t /
+    t_c)^(1/lambda) before that (0.2607 at t = 0.6). Ahead of it the gas
+    is cold, rho = 1, at rest; behind it the inflow extends to infinity
+    (rho 10.3, u -0.53 at r = 2). Setup: gamma = 1.4, start at t = 0 from
+    the exact solution sampled at each cell's radius (a radial profile
+    table from the oracle, `initial.radial_profile`, Task 24), **polar
+    mesh r in [0, 2]**, theta in [0, 90], symmetry walls on the planes,
+    outflow at r = 2. The outer boundary is not prescribed from the exact
+    solution: that needs the boundary's particle path, and ExactPack's
+    solver takes ~1 min per time level. Instead the domain is big enough:
+    a disturbance from r = 2 moves in at u - c ~ -0.83, so by t = 0.9 it
+    is near r = 1.25, outside the compared window **r <= 1**. Compared at
+    **t = 0.6** (converging shock at 0.2607, before the collapse) and
+    **t = 0.9** (after the reflection, rho ~ 58 near the axis), one run
+    to t = 0.9 with an intermediate dump. The polar mesh down to r = 0 has
+    degenerate cells on the axis (the x_min side collapses to a point, its
+    faces have zero area), as in the classic polar-grid Noh. Today
+    `wall_constraints` (`src/bc/bc.cpp`) normalizes each face normal with
+    no zero check, so Task 20 must skip zero-area faces there and in the
+    corner geometry, and test it. The axis node lies on both walls, so it
+    is pinned, which is the symmetry the problem needs. If degenerate cells
+    turn out not to work cleanly in Task 20, the fallback is a Cartesian
+    quarter plane [0, 2]^2 (grid imprinting at the focus), decided there.
+  - *Meshes and walls:* Cartesian for LeBlanc and Sedov, polar for Kidder
+    and Guderley. The polar mapping takes the structured box's x range as
+    r and its y range as theta in **degrees** (0 and 90 are exact in a
+    deck), nodes at (r cos theta, r sin theta, z); sides keep their tags
+    (x_min inner surface, x_max outer, y_min the theta = 0 plane, y_max
+    the other). A curved boundary is only ever a pressure boundary
+    (outflow or prescribed P*), never a wall: `wall_normals` counts
+    non-coplanar faces at a node as separate walls, so a curved wall would
+    pin its nodes like an edge. Walls only on planes.
+  - *Error metric:* L1 of density against the exact profile at each
+    cell's radius, r of its node average (the dump's `centroid`, as
+    v0.2), `sum_c |rho_c - rho(r_c, t)| V_c / L_z` (per unit length of
+    slab; for LeBlanc per unit cross-section, as Sod). Kidder adds the
+    inner and outer radii (mean radius of the nodes on x_min, x_max)
+    against h(t) 0.9 and h(t), and the entropy max_c |P_c / rho_c^gamma
+    - 1|. Symmetry, for the radial problems: per radial bin of one cell's
+    width, the spread (max - min) of cell density over the cells in it;
+    reported as the largest spread behind the shock, and plotted as the
+    thesis's scatter plots.
+  - *Oracles:* closed forms (LeBlanc's Riemann solution, Kidder) are
+    evaluated where used, as Sod is today. Sedov and Guderley come from
+    ExactPack via `scripts/gen_oracle_data.py` as fine-sampled radial
+    profiles with their jumps in `tests/oracle_data/`, so neither ctest
+    nor `convergence.py` needs ExactPack at run time (ExactPack's Guderley
+    takes minutes per time level).
+  - *Known risks*, to report, not tune: the thesis's SP limiter kept the
+    node crossing on the axes and the bowtie hourglass at 45 degrees on
+    Sedov where only its MM limiter cleared them (seen at first order too,
+    in 3D; the thesis says 2D EUCCLHYD does not show them); Kidder's
+    exponential growth of mesh defects near the outer surface, where the
+    thesis's SP limiter gave inner-face oscillations at second order (a
+    2D polar mesh is equi-angular, no triple point, so tau_1 should hold);
+    LeBlanc's 1e9 pressure ratio and cold right state (the negative-eps
+    tolerance, the Newton flux scale, SP-V near zero velocity) and its
+    known eps overshoot at the contact. If SP-V fails on Sedov or Kidder,
+    the MM limiter (thesis Sec. 2.4) becomes its own task; the gate is not
+    loosened to pass.
+
 - **Build trees:** `build/` is optimized with debug symbols
   (`RelWithDebInfo`, the default build type and the `default` preset) and is
   where tests run; `build-debug/` (`Debug`, the `debug` preset) is only for
