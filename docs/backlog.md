@@ -395,7 +395,7 @@ Files: `src/hydro/scheme.{hpp,cpp}` (energy source), `src/io/deck.{hpp,cpp}`,
       | 160x160 | 5.98e-4 | 1.95 | 7.23e-4 | 1.93 | 6.21e-4 / 7.45e-4 |
 
       Thesis orders at 160x160: 1.94 / 1.92. 320x320 not run (160x160
-      took 78 min optimized, ~24x 80x80)
+      took 78 min optimized on a shared machine; 18 min alone, Task 18)
 
       Order 1: E_L1 1.37e-1, 9.09e-2, 5.29e-2, 2.86e-2 (orders 0.59, 0.78,
       0.89)
@@ -406,7 +406,7 @@ Files: `src/hydro/scheme.{hpp,cpp}` (energy source), `src/io/deck.{hpp,cpp}`,
       1.5 of the thesis. ~26 s optimized. Red without the source: the 40x40
       error grows (rate -0.9). The full table is
       `scripts/taylor_green_convergence.py`, on demand (80x80 ~3 min,
-      160x160 78 min)
+      160x160 18 min, Task 18)
 - [x] Unit tests: a uniform source heats a gas at rest uniformly (both
       orders); in a closed box the total energy changes by dt sum V_c S(x_c)
       at order 1 and by the mean over the two stages' geometries at order 2
@@ -474,7 +474,7 @@ Scope, proposed here and settled in Task 16: the **cylindrical** versions
 in 2D (thin slab, one cell in z), the DoD's "2D at 3+ resolutions". The
 thesis runs Sedov on a 3D cube and Kidder on an eighth of a spherical
 shell; spherical and genuinely 3D runs belong to v0.5 (DoD item 2), and at
-today's cost (Taylor-Green 160x160 at order 2: 78 min) a 3D cube at 3
+today's cost (Taylor-Green 160x160 at order 2: 18 min, Task 18) a 3D cube at 3
 resolutions would take hours. Every task keeps the v0.2 decks' results
 exactly (`order = 1` and `order = 2` dumps of Sod, Noh, Saltzman and
 Taylor-Green byte-identical), unless a task says otherwise and why.
@@ -560,18 +560,29 @@ the lines), `README.md` and the `roadmap.md` gap entry.
       orders) are byte-identical to the previous build's, with and without
       probes
 
-## Task 18 — Cost scaling check
+## Task 18 — Cost scaling check — ✅ DONE
 Files: none required (a report in `NOTES.md` and this backlog); any fix
 goes to its own task. Measured in Task 14: Taylor-Green at order 2, 40x40
 -> 80x80 cost 8.3x (4x cells, 2x steps: expected 8x), 80x80 -> 160x160
 cost 24x. Part of that run shared the machine, so measure again first.
-- [ ] Time one step (both orders) at 40x40, 80x80, 160x160 and 320x320
+Also changed: the "78 min" in Task 14, the v0.3 scope note and
+`scripts/taylor_green_convergence.py`'s docstring.
+- [x] Time one step (both orders) at 40x40, 80x80, 160x160 and 320x320
       Taylor-Green, and the parts of it (geometry, thermo, nodal solves and
       Newton iteration counts, gradients, limiter, corner forces): is any
       part superlinear in the number of cells, or does Newton take more
-      iterations on finer meshes?
-- [ ] If something is superlinear, a follow-up task to fix it, with results
-      bit-identical. Not a general optimization pass
+      iterations on finer meshes? **No** (`NOTES.md`, "Task 18"). Per 4x
+      cells an order-2 step costs 4.15x, 4.15x, 4.4x (59 ms, 243 ms,
+      1.01 s, 4.4 s); the 320x320 excess is cache misses in the memory-bound
+      parts. Newton takes 4 evaluations per solve at every mesh and over
+      the whole run. Full runs alone: 19 s, 169 s, 18 min (80 -> 160 is
+      6.5x); the 78 min was the shared machine. The steps double per
+      refinement: CFL binds at the corner stagnation cells, squeezed by
+      exp(-pi t) on every mesh. The nodal solves are ~85% of a step.
+      Cost model: ~40 us per cell-step at order 2, ~13 us at order 1
+- [x] If something is superlinear, a follow-up task to fix it, with results
+      bit-identical. Not a general optimization pass. Nothing is: no
+      follow-up
 
 ## Task 19 — LeBlanc shock tube
 Files: `decks/leblanc.json` and `decks/convergence/leblanc_*.json`,
@@ -699,3 +710,17 @@ Files: `scripts/convergence.py` (or its successor `make_report.py`),
 
 ## After Task 25
 v0.3 is done when the gate agreed in Task 16 is met.
+
+## Deferred: performance (not scheduled)
+Luca, 2026-11-24: correctness first; speed waits until the physics is
+established. Not before v0.3 is accepted, and only as its own task. From
+Task 18 (`NOTES.md`): ~40 us per cell-step at order 2, ~3.4 KB peak memory
+per cell (a 100^3 3D mesh would need ~3.4 GB), the nodal solves ~85% of a
+step. Candidates, each with dumps bit-identical to before:
+- The Newton loop: face areas and per-step quantities computed once, the
+  four corner passes per evaluation fused, no allocation per iteration,
+  `wall_constraints` once per step instead of per solve
+- Fewer temporaries per cell (CornerValues arrays, the predictor's state
+  copy), for the memory per cell
+- Threads (OpenMP): node assembly as a gather in a fixed order, so the sums
+  keep their order

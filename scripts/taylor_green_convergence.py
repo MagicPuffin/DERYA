@@ -9,8 +9,8 @@ next to the thesis's Table 3.1(b) (predictor-corrector, discrete
 gradients, unlimited). The deck's constants (density, c1, c2) and scheme
 are used as they are, except for --order and --limiter. Run on demand, not
 from ctest (ctest covers 10x10 to 40x40): at order 2, optimized, 80x80
-takes ~3 min and 160x160 78 min (~24x, more than the 8x of 4x the cells
-and 2x the steps); 320x320 has not been run.
+takes ~3 min and 160x160 ~18 min (4x the cells, 2x the steps; Task 18);
+320x320 (~3 h) has not been run.
 
 Usage:
   python3 scripts/taylor_green_convergence.py [--sizes 10 20 40 80]
