@@ -141,10 +141,64 @@ What goes wrong, measured, not tuned:
   of the shock is untouched beyond its precursor (0.30 ahead at 225 cells,
   order 1).
 
-Whether this is LeBlanc's known slow convergence for Lagrangian schemes on
-a uniform initial mesh, or something in this scheme, is open: a follow-up
-task (`backlog.md`, Task 19b) and a decision on the gate's LeBlanc bound,
-which is not loosened here.
+### Why the shock is ahead (Task 19b)
+Not a defect: the scheme is right, the uniform mesh is too coarse where it
+matters, a thin layer of heavy gas at the contact. From
+`python3 scripts/leblanc_1d.py`, an independent 1D model of the order-1
+step (same two-shock nodal solve, forward Euler, same dt controller; it
+puts the shock where hydro_run does to 2e-4 at 225, 450 and 900 cells):
+
+| Mesh (order 1, 1D model) | Cells | Shock | Error |
+|---|---|---|---|
+| uniform | 900 | 8.384 | +0.409 |
+| uniform | 1800 | 8.398 | +0.424 |
+| uniform | 3600 | 8.298 | +0.323 |
+| uniform | 7200 | 8.186 | +0.211 |
+| uniform | 14400 | 8.103 | +0.128 |
+| light gas only refined, x16 (0.01 heavy cells) | 9900 | 8.397 | +0.422 |
+| heavy gas only refined, x16 (0.01 light cells) | 5400 | 8.098 | +0.123 |
+| 900, only [2.95, 3] refined x16 | 975 | 8.091 | +0.116 |
+| 900, only [2.95, 3] refined x64 | 1215 | 8.010 | +0.035 |
+| 900, only [2.95, 3] refined x256 | 2175 | 7.981 | +0.007 |
+| 900, only [2.99, 3] refined x64 | 963 | 8.091 | +0.116 |
+
+- *It converges, slowly.* On uniform meshes the error peaks near 1800
+  cells and then falls (+0.13 at 14400 cells, rate 0.6-0.7); hydro_run's 225 to
+  1800 are the start of that curve.
+- *Only the heavy gas next to the contact matters.* Refining the light
+  gas changes nothing; refining the heavy gas fixes it, and refining just
+  [2.95, 3], the 0.05 of heavy gas that becomes the plateau between the
+  rarefaction's tail and the contact (0.041 of mass), fixes it as well:
+  +0.007 with that layer 256 times finer, on 2175 cells. [2.99, 3] alone
+  is not enough.
+- *Mechanism: start-up entropy.* At t = 0 the heavy gas faces almost a
+  vacuum (a 1e9 pressure ratio). The first heavy cell expands against a
+  face pressure far below its own, so it does less work than the
+  isentrope would and keeps the difference as internal energy: its
+  entropy P / rho^gamma ends 5.3 times the initial value at 900 cells, the
+  next cells' 2.4 and 1.6 times (exact: 1, the rarefaction is
+  isentropic). Those few cells are the whole heavy plateau at 900 cells,
+  so at the plateau's density they hold too much pressure (6.2e-4 against
+  p* = 5.16e-4) and push the light gas too hard. The damaged mass is a
+  fixed number of cells, so it shrinks with the cell mass; once the
+  plateau is many cells deep the contact pressure is right. With the
+  layer refined 256 times, the plateau's entropy is within 2% of the
+  initial value and the shock within 0.007.
+- *Not the solver's approximation:* the exact Riemann solver at every
+  interface (Lagrangian Godunov, `--solver exact`) is worse, +0.84 at 450
+  cells and +0.60 at 1800. Not the timestep either (CFL 0.1: 0.01).
+- *Literature:* the same loss of shock-speed accuracy, blamed on the
+  internal-energy overshoot at the contact, a start-up error of the
+  wall-heating kind, is reported for Eulerian schemes too, which need
+  ~2000 cells or explicit contact diffusion (Ramani, Reisner and
+  Shkoller, arXiv:1806.08023, Sec. 5.4).
+
+Order 2 was not run on a refined layer (hydro_run has no graded mesh);
+on the uniform mesh it is +0.34 at 900 cells, the same failure. So the
+gate's LeBlanc bound (0.1 at 900 uniform cells) is out of reach for this
+scheme by 0.3 and will be until ~10^4 uniform cells; whether to change
+the setup (a refined layer at the contact) or the bound is Luca's call
+(`backlog.md`, Task 19b).
 
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every

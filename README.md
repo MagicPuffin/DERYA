@@ -63,7 +63,10 @@ Taylor-Green vortex converges at order ~2
   LeBlanc's shock position) and plots error against resolution
 - LeBlanc shock tube (`decks/leblanc.json`, v0.3): runs at both orders
   through the 1e9 pressure ratio, errors fall with resolution, but the
-  shock lands 0.3-0.4 ahead of the exact one at 900 cells (see
+  shock lands 0.3-0.4 ahead of the exact one at 900 cells: start-up
+  entropy in the few heavy cells at the contact, which a uniform mesh
+  resolves only at ~10^4 cells. `scripts/leblanc_1d.py` (an independent
+  1D model of the first-order step) shows it (see
   [docs/vv_catalog.md](docs/vv_catalog.md))
 - Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
   energy source that keeps it stationary): the second-order scheme

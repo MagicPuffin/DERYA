@@ -84,3 +84,34 @@ cost is cells x steps x that; the step counts depend on each problem's
 dt history.
 
 No follow-up fix task: nothing is superlinear.
+
+## Task 19b — why LeBlanc's shock is ahead (2026-11-25)
+
+Task 19 found the shock 0.34-0.41 ahead of the exact 7.975 at 900 uniform
+cells, and no closer at 1800. **Not a defect.** Method: an independent 1D
+model of the order-1 step in numpy (`scripts/leblanc_1d.py`, ~2.5 min),
+the same two-shock nodal solve, forward Euler and dt controller. It
+reproduces hydro_run's shock to 2e-4 at 225, 450 and 900 cells and runs
+the meshes hydro_run cannot afford. Full table and reasoning in
+`vv_catalog.md`, "Why the shock is ahead".
+
+- Uniform meshes converge, slowly: +0.42 (1800), +0.32, +0.21, +0.13
+  (14400).
+- Refining the light gas alone: no change. Refining the heavy gas alone,
+  or only its last 0.05 before the contact ([2.95, 3], the mass that
+  becomes the heavy plateau): fixed, +0.035 at x64, +0.007 at x256.
+- Cause: start-up entropy. The first heavy cell expands into a near-vacuum
+  against a face pressure far below its own, so it ends with 5.3x the
+  isentropic P / rho^gamma (next cells 2.4x, 1.6x). At 900 cells those
+  cells are the whole plateau and hold the contact at 6.2e-4 instead of
+  p* = 5.16e-4.
+- The exact Riemann solver (Lagrangian Godunov) is worse (+0.84 at 450),
+  so the two-shock approximation is not the cause; CFL 0.1 moves the shock
+  by 0.01.
+- Literature: shock-speed errors from the contact's start-up error on
+  LeBlanc are known for Eulerian schemes too (Ramani, Reisner, Shkoller,
+  arXiv:1806.08023, Sec. 5.4; ~2000 cells usually used).
+
+Open: the gate's LeBlanc bound cannot be met on the uniform 900-cell mesh;
+change the setup (a refined layer at the contact, needs a graded-mesh deck
+key) or the bound. Luca's decision (`backlog.md` Task 19b).

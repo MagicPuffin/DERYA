@@ -621,17 +621,35 @@ C++ test needs the oracle file). Also changed: `scripts/plot_comparison.py`
       both orders at 900 cells (log scale for rho and P):
       `docs/figures/profiles_leblanc_900.png`
 
-## Task 19b — LeBlanc shock position (proposed, not scheduled)
-From Task 19: at 900 cells the shock is 0.34-0.41 ahead of the exact one
-and the offset is not shrinking at 1800 cells, while the plateau state
-converges slowly. Find out whether this is the known slow convergence of a
-Lagrangian scheme on a uniform initial mesh or a defect here, before the
-gate's LeBlanc bound is decided. Candidates: order 1 at 3600 cells (~45
-min) for the trend; a mesh refined just left of x = 3 (the heavy plateau's
-0.041 of mass starts in [2.959, 3]; needs a graded-mesh deck key) to test
-the under-resolution explanation; literature LeBlanc results for
-cell-centered Lagrangian schemes at these resolutions. No change to the scheme to pass
-the gate; any fix is its own task.
+## Task 19b — LeBlanc shock position — ✅ DONE (understood; gate decision open)
+Files: `scripts/leblanc_1d.py` (new), `docs/vv_catalog.md` ("Why the shock
+is ahead"), `docs/NOTES.md`, this backlog, `roadmap.md`. No change to the
+scheme.
+- [x] Is the 0.34-0.41 offset at 900 cells a defect? **No.** An
+      independent 1D model of the order-1 step (`leblanc_1d.py`) puts the
+      shock where hydro_run does to 2e-4, and on uniform meshes converges:
+      +0.42 at 1800 cells, +0.32, +0.21, +0.13 at 3600, 7200, 14400
+- [x] Cause: start-up entropy in the few heavy cells at the contact (the
+      first one expands against a near-vacuum and ends with 5.3x the
+      isentropic entropy at 900 cells). They are the whole heavy plateau,
+      so the contact pressure is 6.2e-4 instead of 5.16e-4. Refining the
+      light gas changes nothing; refining only [2.95, 3] fixes it (+0.035
+      at x64 on 1215 cells, +0.007 at x256). The exact Riemann solver is
+      worse (+0.84 at 450), so not the two-shock approximation
+- [ ] **Decision for Luca** (the gate is proposed, not agreed; not changed
+      here). Options:
+  - (a) Keep the uniform 225/450/900 meshes and replace the shock bound
+        with what they can meet (e.g. the shock error falls from 450 to
+        900, or a bound of 0.5), with the 1D model's convergence as the
+        evidence
+  - (b) Refine the heavy layer at the contact: a graded-mesh deck key
+        (e.g. `mesh.x_segments`, cells per segment), decks n = 225/450/900
+        with [2.95, 3] refined x64. The 1D model gives +0.035 at 900
+        (1215 cells, ~7600 steps: ~2.5 min at order 1, maybe ~10 min at
+        order 2 in hydro_run) and the 0.1 bound would hold as written.
+        Its own task (mesh + deck + tests), before LeBlanc's gate run
+  - (c) Both: (b) for the gate, the uniform family kept as the reported
+        literature-style setup
 
 ## Task 20 — Polar mesh mapping
 Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
