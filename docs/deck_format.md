@@ -10,9 +10,11 @@ where it failed. Examples: [decks/sod.json](../decks/sod.json),
 [decks/saltzman.json](../decks/saltzman.json),
 [decks/taylor_green.json](../decks/taylor_green.json),
 [decks/leblanc.json](../decks/leblanc.json). The convergence families, the
-same problems at 50/100/200 cells (LeBlanc 225/450/900), are in
+same problems at 50/100/200 cells (LeBlanc 225/450/900, uniform and with
+a refined layer at the contact), are in
 [decks/convergence/](../decks/convergence/); run them with
-`python3 scripts/convergence.py`.
+`python3 scripts/convergence.py` (`--keep-dumps DIR` keeps the dumps for
+plotting).
 
 The reader rejects unknown keys, so a misspelled key is an error, not a
 silently ignored setting. The parser is in `src/io/deck.cpp`.
@@ -23,6 +25,7 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 |---|---|---|---|
 | `mesh.cells` | 3 integers ≥ 1 | yes | `nx, ny, nz` |
 | `mesh.min`, `mesh.max` | 3 numbers | yes | Box corners; `max > min` in every direction |
+| `mesh.x_segments` | array | no | Grades the mesh in x: `[[x0, x1, n], ...]`, `n` uniform cells on `[x0, x1]` each, contiguous (each `x0` equals the previous `x1`, exactly as written), from `mesh.min[0]` to `mesh.max[0]`, the `n` adding up to `mesh.cells[0]`. Not with `mesh.perturbation`. Example: `decks/convergence/leblanc_layer_225.json` |
 | `mesh.perturbation` | string | no | Only `"saltzman"`: each node moves in x by `(y_max - y) sin(pi (x - x_min) / (x_max - x_min))` |
 | `eos.type` | string | yes | Only `"ideal_gas"` |
 | `eos.gamma` | number > 1 | yes | |

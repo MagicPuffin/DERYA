@@ -67,9 +67,40 @@ void optional_number(const json& j, const std::string& path, const char* key,
   if (!valid(out)) fail(path + "." + key, requirement);
 }
 
+// mesh.x_segments: [[x0, x1, n], ...], contiguous from mesh.min to mesh.max
+// in x, n uniform cells each, adding up to mesh.cells[0]. Returns the x
+// node positions.
+std::vector<double> parse_x_segments(const json& j, const std::string& path,
+                                     const mesh::StructuredMeshSpec& spec) {
+  if (!j.is_array() || j.empty()) fail(path, "expected a non-empty array of [x0, x1, n]");
+  std::vector<double> nodes = {spec.x_min};
+  for (std::size_t s = 0; s < j.size(); ++s) {
+    const std::string s_path = path + "[" + std::to_string(s) + "]";
+    const json& seg = j[s];
+    if (!seg.is_array() || seg.size() != 3) fail(s_path, "expected [x0, x1, n]");
+    const double x0 = number(seg[0], s_path + "[0]");
+    const double x1 = number(seg[1], s_path + "[1]");
+    const long n = integer(seg[2], s_path + "[2]");
+    if (n < 1) fail(s_path + "[2]", "must be >= 1");
+    if (!(x1 > x0)) fail(s_path, "x1 must exceed x0");
+    if (x0 != nodes.back()) {
+      fail(s_path + "[0]", s == 0 ? "must equal mesh.min[0]" : "must equal the previous x1");
+    }
+    // As generate_structured_mesh: one segment gives the uniform nodes.
+    const double dx = (x1 - x0) / n;
+    for (long i = 1; i < n; ++i) nodes.push_back(x0 + i * dx);
+    nodes.push_back(x1);
+  }
+  if (nodes.back() != spec.x_max) fail(path, "the last x1 must equal mesh.max[0]");
+  if (nodes.size() != static_cast<std::size_t>(spec.nx) + 1) {
+    fail(path, "the cell counts must add up to mesh.cells[0]");
+  }
+  return nodes;
+}
+
 mesh::StructuredMeshSpec parse_mesh(const json& j, MeshPerturbation& perturbation) {
   const std::string path = "mesh";
-  object(j, path, {"cells", "min", "max", "perturbation"});
+  object(j, path, {"cells", "min", "max", "perturbation", "x_segments"});
   if (j.contains("perturbation")) {
     if (string(j.at("perturbation"), path + ".perturbation") != "saltzman") {
       fail(path + ".perturbation", "only \"saltzman\" is supported");
@@ -98,6 +129,12 @@ mesh::StructuredMeshSpec parse_mesh(const json& j, MeshPerturbation& perturbatio
   spec.x_max = hi[0];
   spec.y_max = hi[1];
   spec.z_max = hi[2];
+  if (j.contains("x_segments")) {
+    if (perturbation != MeshPerturbation::None) {
+      fail(path + ".x_segments", "cannot be combined with mesh.perturbation");
+    }
+    spec.x_nodes = parse_x_segments(j.at("x_segments"), path + ".x_segments", spec);
+  }
   return spec;
 }
 
@@ -295,6 +332,9 @@ std::vector<std::string> thin_slab_warnings(const mesh::StructuredMeshSpec& spec
   double in_plane = std::numeric_limits<double>::infinity();
   for (int d = 0; d < 3; ++d) {
     if (n[d] > 1) in_plane = std::min(in_plane, width[d] / n[d]);
+  }
+  for (std::size_t i = 1; i < spec.x_nodes.size(); ++i) {
+    in_plane = std::min(in_plane, spec.x_nodes[i] - spec.x_nodes[i - 1]);
   }
   std::vector<std::string> warnings;
   if (std::isinf(in_plane)) return warnings;  // no multi-cell direction

@@ -1,6 +1,7 @@
 #include "mesh.hpp"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace hydro::mesh {
 
@@ -12,6 +13,9 @@ enum LocalFace { kXMinus = 0, kXPlus, kYMinus, kYPlus, kZMinus, kZPlus };
 
 Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
   const Index nx = spec.nx, ny = spec.ny, nz = spec.nz;
+  if (!spec.x_nodes.empty() && spec.x_nodes.size() != static_cast<std::size_t>(nx) + 1) {
+    throw std::invalid_argument("generate_structured_mesh: x_nodes needs nx + 1 values");
+  }
   const double dx = (spec.x_max - spec.x_min) / nx;
   const double dy = (spec.y_max - spec.y_min) / ny;
   const double dz = (spec.z_max - spec.z_min) / nz;
@@ -43,7 +47,7 @@ Mesh generate_structured_mesh(const StructuredMeshSpec& spec) {
   for (Index k = 0; k <= nz; ++k) {
     for (Index j = 0; j <= ny; ++j) {
       for (Index i = 0; i <= nx; ++i) {
-        m.node_x.push_back(spec.x_min + i * dx);
+        m.node_x.push_back(spec.x_nodes.empty() ? spec.x_min + i * dx : spec.x_nodes[i]);
         m.node_y.push_back(spec.y_min + j * dy);
         m.node_z.push_back(spec.z_min + k * dz);
       }

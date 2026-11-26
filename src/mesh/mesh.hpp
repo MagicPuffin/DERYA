@@ -69,7 +69,9 @@ struct Mesh {
 };
 
 // Uniform nx-by-ny-by-nz hex mesh on [x_min, x_max] x [y_min, y_max] x
-// [z_min, z_max]. nz = 1 is the thin-slab "2D" mode.
+// [z_min, z_max]. nz = 1 is the thin-slab "2D" mode. x_nodes, when given,
+// replaces the uniform x positions: nx + 1 increasing values from x_min to
+// x_max (a mesh graded in x, e.g. LeBlanc's refined layer).
 struct StructuredMeshSpec {
   Index nx = 1;
   Index ny = 1;
@@ -80,9 +82,11 @@ struct StructuredMeshSpec {
   double y_max = 1.0;
   double z_min = 0.0;
   double z_max = 1.0;
+  std::vector<double> x_nodes;
 };
 
-// Numbering, with node (i, j, k) at (x_min + i*dx, y_min + j*dy, z_min + k*dz):
+// Numbering, with node (i, j, k) at (x_min + i*dx, y_min + j*dy, z_min + k*dz)
+// (x_nodes[i] in place of x_min + i*dx when given):
 //   - node (i, j, k), 0 <= i <= nx, 0 <= j <= ny, 0 <= k <= nz:
 //     k*(ny+1)*(nx+1) + j*(nx+1) + i
 //   - cell (i, j, k), 0 <= i < nx, 0 <= j < ny, 0 <= k < nz:

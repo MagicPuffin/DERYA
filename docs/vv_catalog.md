@@ -21,7 +21,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 | Taylor-Green vortex (Dobrev et al.; Georges' thesis Sec. 3.2) | smooth convergence order, distorted cells; needs an energy source | Done (v0.2, Task 14) — order 2 unlimited: L1 pressure 5.98e-4 at 160×160, order 1.95 (thesis 1.94), within 25% of the thesis's Table 3.1(b); ctest 10-40, full table `scripts/taylor_green_convergence.py` |
 | **Kidder ball** | no spurious entropy under isentropic compression | **High** — most relevant to FLARE's actual drive regime |
 | **Guderley converging shock** | converging-shock focusing, cylindrical symmetry | **High** — most relevant to cylindrical implosion geometry |
-| LeBlanc | severe density/pressure jump, Riemann robustness | v0.3 (Task 19): runs at both orders, L1 falls, order 2 below order 1; shock position fails the proposed gate (table below) |
+| LeBlanc | severe density/pressure jump, Riemann robustness | v0.3 (Tasks 19-19c): gate met on the layered meshes (shock +0.013 at order 2, 900 base); the uniform meshes are reported (shock 0.3-0.4 ahead, start-up entropy) |
 | Coggeshall (pure-hydro subset) | adiabatic self-similar compression | Low — Kidder covers similar ground |
 | Gresho vortex | low-Mach vorticity preservation | Low for v1.0 |
 
@@ -100,11 +100,11 @@ Exact solution: contact at 6.731, shock at 7.975, rho 4e-3, u 0.622, eps
 | LeBlanc | 900 | 4.527e-02 | 0.57 | 8.383 | 1.871e-02 | 0.76 | 8.311 |
 | LeBlanc | 1800 | 3.181e-02 | 0.51 | 8.398 | (not run) | | |
 
-Against the proposed v0.3 gate (`roadmap.md`): every run reaches t = 6
-(item 1), the error falls with resolution at both orders and order 2 is
-below order 1 at every resolution (2, 3). Item 4 **fails**: at 900 cells
-the shock is 0.41 (order 1) and 0.34 (order 2) ahead of 7.975, not within
-0.1. The 1800-cell order-1 run (off the gate, 10.5 min) puts it at 8.398,
+Uniform meshes, reported, not gated (Task 19b; the gate runs on the
+layered meshes below): every run reaches t = 6, the error falls with
+resolution at both orders and order 2 is below order 1 at every
+resolution, but at 900 cells the shock is 0.41 (order 1) and 0.34 (order
+2) ahead of 7.975, not within 0.1. The 1800-cell order-1 run (off the gate, 10.5 min) puts it at 8.398,
 so the offset is not shrinking yet. Costs at 900 cells, optimized, alone:
 order 1 ~2 min (7255 steps), order 2 ~7 min (6614 steps).
 
@@ -193,12 +193,44 @@ puts the shock where hydro_run does to 2e-4 at 225, 450 and 900 cells):
   ~2000 cells or explicit contact diffusion (Ramani, Reisner and
   Shkoller, arXiv:1806.08023, Sec. 5.4).
 
-Order 2 was not run on a refined layer (hydro_run has no graded mesh);
-on the uniform mesh it is +0.34 at 900 cells, the same failure. So the
-gate's LeBlanc bound (0.1 at 900 uniform cells) is out of reach for this
-scheme by 0.3 and will be until ~10^4 uniform cells; whether to change
-the setup (a refined layer at the contact) or the bound is Luca's call
-(`backlog.md`, Task 19b).
+So the bound (0.1) is out of reach on uniform meshes until ~10^4 cells.
+Decided with Luca (2026-11-26, Task 19b option (c)): the gate runs on
+meshes with the heavy layer at the contact refined; the uniform family
+stays, reported.
+
+### Gated: a refined layer at the contact (Task 19c)
+`decks/convergence/leblanc_layer_<n>.json`: the n-cell uniform mesh (slab
+width 9/n) with [2.96, 3] refined 64 times, through `mesh.x_segments`:
+288, 576 and 1152 cells for n = 225, 450, 900. [2.96, 3] rather than
+19b's [2.95, 3], which does not fit the 225 mesh (cells 0.04); the 1D model
+gives +0.051, +0.035, +0.031 with it (a wider layer, [2.92, 3], does worse
+on the coarse bases: +0.127 at 225). hydro_run's order-1 runs match the
+1D model exactly (same steps, shocks to 1e-4). From
+`python3 scripts/convergence.py --problems leblanc_layer --markdown`:
+
+| Base n | Cells | Order 1 L1 | rate | shock | Order 2 L1 | rate | shock |
+|---|---|---|---|---|---|---|---|
+| 225 | 288 | 7.234e-02 | | 8.026 | 1.270e-02 | | 7.996 |
+| 450 | 576 | 4.437e-02 | 0.71 | 8.010 | 5.728e-03 | 1.15 | 7.996 |
+| 900 | 1152 | 2.659e-02 | 0.74 | 8.006 | 2.115e-03 | 1.44 | 7.988 |
+
+The gate (`roadmap.md`) **passes**: every run reaches t = 6, the error
+falls at both orders, order 2 is below order 1 everywhere (5-13 times),
+and at the 900 base the shock is +0.031 (order 1) and +0.013 (order 2)
+from 7.975, within 0.1. Behind the shock at the 900 base: u 0.624-0.629
+and 0.6232-0.6236 (exact 0.622), eps 0.193-0.197 and 0.1933-0.1941
+(exact 0.1933), plateau rho 4.04e-3 and 4.01e-3. The eps spike at the
+contact remains (peaks 0.299 at order 1, 0.241 at order 2, in the first
+light cells): the light side's own start-up error, which no longer
+reaches the shock. Order 2 converges faster than on the uniform meshes
+(rates 1.15 and 1.44 against 0.38 and 0.76): with the start-up error
+gone, the error is the waves' widths. Costs at the 900 base: order 1
+6980 steps, order 2 7819 steps, ~13 min with 3 other runs sharing the
+machine (est. ~10 min alone, above the order-1 1D model's 7600 steps);
+the four other runs, 15 s to 3 min. No robustness problem: eps never
+below the cold gas's 1e-7, flow 1D (|v_y| < 2e-15).
+
+![LeBlanc profiles, refined layer](figures/profiles_leblanc_layer_900.png)
 
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every

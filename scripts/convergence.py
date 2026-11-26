@@ -7,8 +7,9 @@ error against the exact solution, sum_c |rho_c - rho(x_c)| V_c / A (A the
 fixed y-z cross-section, so V_c / A is the cell's length; rho at the cell's
 centroid), with the observed rate between successive resolutions. Checks
 the v0.2 gate (roadmap.md): the second-order error below the first-order
-one at every resolution, and for LeBlanc the shock-position bound of the
-v0.3 gate. Optionally plots error against resolution. Runs are independent
+one at every resolution, and the v0.3 gate's LeBlanc shock-position bound
+on leblanc_layer (the heavy gas at the contact refined, Task 19c); the
+uniform leblanc family's shock is reported, not gated. Optionally plots error against resolution. Runs are independent
 and go in parallel (--jobs). Run on demand, not from ctest; the ctest covers
 the cheaper families.
 
@@ -20,9 +21,10 @@ at their sample points (--check-oracles); for LeBlanc that compares this
 solver with ExactPack's, an independent evaluation.
 
 Usage:
-  python3 scripts/convergence.py [--problems sod noh saltzman leblanc]
+  python3 scripts/convergence.py [--problems sod noh saltzman leblanc leblanc_layer]
       [--sizes N ...] [--orders 1 2] [--jobs 8] [--plot convergence.png]
-      [--markdown] [--hydro-run build/src/app/hydro_run] [--check-oracles]
+      [--markdown] [--hydro-run build/src/app/hydro_run] [--keep-dumps DIR]
+      [--check-oracles]
 """
 import argparse
 import concurrent.futures
@@ -105,12 +107,17 @@ def leblanc_exact(x, t=6.0, gamma=5.0 / 3.0):
 
 
 EXACT = {"sod": sod_exact, "noh": noh_exact, "saltzman": saltzman_exact,
-         "leblanc": leblanc_exact}
-SIZES = {"leblanc": [225, 450, 900]}  # the rest: --sizes
+         "leblanc": leblanc_exact, "leblanc_layer": leblanc_exact}
+# The rest: --sizes. leblanc_layer's n is the base mesh (cells 9/n away from
+# the layer [2.96, 3], which is refined x64).
+SIZES = {"leblanc": [225, 450, 900], "leblanc_layer": [225, 450, 900]}
+ORACLE = {"leblanc_layer": "leblanc"}
 
 # v0.3 gate (roadmap.md): LeBlanc's shock position within 0.1 of 7.975 at
-# the finest resolution.
+# the finest resolution, on the layered meshes (Task 19b/19c); reported for
+# the uniform ones.
 LEBLANC_SHOCK, LEBLANC_SHOCK_TOL = 7.974710, 0.1
+GATED_SHOCK = {"leblanc_layer"}
 
 
 def check_oracles():
@@ -119,6 +126,8 @@ def check_oracles():
     jumps = {"sod": [0.5 + 0.92745 * 0.2, 0.5 + 1.75216 * 0.2], "noh": [0.2],
              "saltzman": [0.8], "leblanc": [6.731032, 7.974710]}
     for name, exact in EXACT.items():
+        if name in ORACLE:
+            continue
         oracle = json.loads((REPO / "tests" / "oracle_data" / f"{name}.json").read_text())
         worst = max(abs(exact(x) - r) for x, r in zip(oracle["x"], oracle["density"])
                     if all(abs(x - j) > 0.006 for j in jumps[name]))
@@ -160,7 +169,7 @@ def run_one(hydro_run, problem, n, order, work):
     dump = json.loads(dump_path.read_text())
     result = {"l1": l1_density_error(dump, EXACT[problem]), "steps": dump["steps"],
               "time": elapsed}
-    if problem == "leblanc":
+    if problem.startswith("leblanc"):
         result["shock"] = shock_position(dump)
     return result
 
@@ -224,6 +233,9 @@ def main():
                         help="write a PNG of error against resolution")
     parser.add_argument("--markdown", action="store_true",
                         help="print the table as Markdown (for vv_catalog.md)")
+    parser.add_argument("--keep-dumps", type=pathlib.Path, default=None,
+                        help="write the decks and dumps here (<problem>_<n>_o<order>_dump.json) "
+                             "instead of a temporary directory, e.g. for plot_comparison.py")
     parser.add_argument("--check-oracles", action="store_true",
                         help="compare the exact solutions with tests/oracle_data and exit")
     args = parser.parse_args()
@@ -238,8 +250,9 @@ def main():
             concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         # Largest runs first, so they don't finish last.
         order = sorted(keys, key=lambda k: -(k[1] ** 2 * k[2]))
-        futures = {pool.submit(run_one, args.hydro_run, *k, pathlib.Path(tmp)): k
-                   for k in order}
+        work = args.keep_dumps or pathlib.Path(tmp)
+        work.mkdir(parents=True, exist_ok=True)
+        futures = {pool.submit(run_one, args.hydro_run, *k, work): k for k in order}
         for future in concurrent.futures.as_completed(futures):
             results[futures[future]] = future.result()
 
@@ -277,16 +290,19 @@ def main():
                 if e1 is None or e2 is None or not e2 < e1:
                     gate_ok = False
                     print(f"  gate: {problem} at {n}: order 2 not below order 1")
-        if problem == "leblanc":
+        if problem.startswith("leblanc"):
             finest = sizes[problem][-1]
             for o in args.orders:
                 shock = results[(problem, finest, o)].get("shock")
                 if shock is None or abs(shock - LEBLANC_SHOCK) > LEBLANC_SHOCK_TOL:
-                    gate_ok = False
-                    print(f"  gate: leblanc at {finest}, order {o}: shock at {shock}, "
-                          f"not within {LEBLANC_SHOCK_TOL} of {LEBLANC_SHOCK}")
+                    gated = problem in GATED_SHOCK
+                    gate_ok = gate_ok and not gated
+                    print(f"  {'gate' if gated else 'reported, not gated'}: {problem} at "
+                          f"{finest}, order {o}: shock at {shock}, not within "
+                          f"{LEBLANC_SHOCK_TOL} of {LEBLANC_SHOCK}")
     if 1 in args.orders and 2 in args.orders:
-        print("v0.2 gate (order 2 below order 1 everywhere):", "PASS" if gate_ok else "FAIL")
+        print("gate (order 2 below order 1 everywhere, LeBlanc layer shock bound):",
+              "PASS" if gate_ok else "FAIL")
     if args.plot:
         plot(results, args.problems, sizes, args.orders, args.plot)
     sys.exit(0 if gate_ok else 1)

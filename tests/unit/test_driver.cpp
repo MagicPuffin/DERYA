@@ -233,6 +233,76 @@ TEST_CASE("parse_deck: piston boundaries and the Saltzman perturbation", "[io]")
   check_rejected(bad, "mesh.perturbation");
 }
 
+TEST_CASE("parse_deck: x_segments grade the mesh in x", "[io]") {
+  json j = small_deck();
+  j["mesh"]["x_segments"] = {{0.0, 0.5, 1}, {0.5, 1.0, 3}};
+  const Deck d = parse_deck(j.dump());
+  REQUIRE(d.mesh.x_nodes.size() == 5);
+  CHECK(d.mesh.x_nodes[0] == 0.0);
+  CHECK(d.mesh.x_nodes[1] == 0.5);
+  CHECK_THAT(d.mesh.x_nodes[2], WithinAbs(2.0 / 3.0, 1e-15));
+  CHECK_THAT(d.mesh.x_nodes[3], WithinAbs(5.0 / 6.0, 1e-15));
+  CHECK(d.mesh.x_nodes[4] == 1.0);
+  // The finest x cell (1/6) is narrower than the slab (0.25): no warning.
+  CHECK(d.warnings.empty());
+
+  // Cells take their region by centroid on the graded mesh: only cell 0
+  // (x in [0, 0.5]) is in the left state.
+  const HydroState s = hydro::app::initial_state(d);
+  REQUIRE(s.mesh.num_cells() == 4);
+  CHECK_THAT(s.mass[0], WithinRel(1.0 * 0.5 * 0.0625, 1e-14));
+  CHECK_THAT(s.mass[1], WithinRel(0.125 * (1.0 / 6.0) * 0.0625, 1e-14));
+
+  // One segment over the box is the uniform mesh.
+  j["mesh"]["x_segments"] = {{0.0, 1.0, 4}};
+  const auto one = parse_deck(j.dump()).mesh.x_nodes;
+  for (std::size_t i = 0; i < one.size(); ++i) CHECK_THAT(one[i], WithinAbs(0.25 * i, 1e-15));
+  // Without the key, no x_nodes: the mesh generator's uniform path.
+  CHECK(parse_deck(small_deck().dump()).mesh.x_nodes.empty());
+
+  auto rejected = [&](const json& segments, const std::string& message) {
+    json bad = small_deck();
+    bad["mesh"]["x_segments"] = segments;
+    check_rejected(bad, message);
+  };
+  rejected(json::array(), "mesh.x_segments: expected a non-empty array");
+  rejected({{0.0, 0.5, 1}, {0.5, 1.0, 2}}, "add up to mesh.cells[0]");
+  rejected({{0.0, 0.5, 1}, {0.6, 1.0, 3}}, "x_segments[1][0]: must equal the previous x1");
+  rejected({{0.1, 1.0, 4}}, "x_segments[0][0]: must equal mesh.min[0]");
+  rejected({{0.0, 0.9, 4}}, "the last x1 must equal mesh.max[0]");
+  rejected({{0.0, 0.5, 0}, {0.5, 1.0, 4}}, "x_segments[0][2]: must be >= 1");
+  rejected({{0.0, 0.5, 1.5}, {0.5, 1.0, 3}}, "x_segments[0][2]: expected an integer");
+  rejected({{0.0, 1.0}}, "x_segments[0]: expected [x0, x1, n]");
+  rejected({{0.0, 0.0, 1}, {0.0, 1.0, 3}}, "x1 must exceed x0");
+  json skewed = small_deck();
+  skewed["mesh"]["perturbation"] = "saltzman";
+  skewed["mesh"]["x_segments"] = {{0.0, 1.0, 4}};
+  check_rejected(skewed, "cannot be combined with mesh.perturbation");
+}
+
+TEST_CASE("run: a uniform state at rest stays at rest on a graded mesh", "[app]") {
+  // 6x1x1 with cells from 0.01 to 0.5 wide, walls everywhere: the nodal
+  // pressures balance at every node, whatever the neighbors' sizes.
+  json j = small_deck();
+  j["mesh"]["cells"] = {6, 1, 1};
+  j["mesh"]["x_segments"] = {{0.0, 0.02, 2}, {0.02, 0.5, 2}, {0.5, 1.0, 2}};
+  j["boundaries"]["x_max"] = "symmetry";
+  j["initial"].erase("regions");
+  j["time"] = {{"t_end", 0.1}};
+  std::ostringstream log;
+  const auto r = hydro::app::run(parse_deck(j.dump()), log);
+  CHECK(r.t == 0.1);
+  CHECK(r.steps > 5);
+  const auto x0 = parse_deck(j.dump()).mesh.x_nodes;
+  for (Index c = 0; c < r.state.mesh.num_cells(); ++c) {
+    INFO("cell " << c);
+    CHECK_THAT(r.state.vel_x[c], WithinAbs(0.0, 1e-15));
+  }
+  for (Index p = 0; p < r.state.mesh.num_nodes(); ++p) {
+    CHECK_THAT(r.state.mesh.node_x[p], WithinAbs(x0[p % 7], 1e-15));
+  }
+}
+
 TEST_CASE("parse_deck: the scheme block", "[io]") {
   using hydro::lagrangian::Limiter;
   const Deck d = parse_deck(small_deck().dump());
@@ -730,30 +800,25 @@ TEST_CASE("hydro_run: Saltzman piston against the exact solution", "[app][integr
   CHECK(l1 < 0.05);
 }
 
-TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") {
-  // decks/leblanc.json (= decks/convergence/leblanc_225.json): gamma = 5/3,
-  // (rho, eps) = (1, 0.1) for x < 3 and (1e-3, 1e-7) beyond, walls at
-  // x = 0 and 9, 225x1x1 cubic cells, to t = 6. Compared with
-  // tests/oracle_data/leblanc.json: contact at 6.731, shock at 7.975, rho
-  // 4e-3 between them. The v0.3 gate's shock bound (0.1 of 7.975) is for
-  // the 900-cell mesh, in scripts/convergence.py; at 225 cells the bounds
-  // here are the measured values. Measured: shock at 7.719 (order 1) and
-  // 8.220 (order 2), plateau rho 4.84e-3 and 4.00e-3, L1 8.86e-2 and
-  // 4.13e-2; about 5 s and 25 s, optimized. The shock lags at first (it
-  // forms over a few cells) and then runs too fast: the heavy gas behind
-  // the contact is about one cell of mass here, too coarse for the end of
-  // the rarefaction, so it keeps too much pressure and pushes the light
-  // gas too hard (u 0.70 behind the shock, exact 0.622). vv_catalog.md,
-  // "LeBlanc".
+namespace {
+
+// Runs a LeBlanc deck (gamma = 5/3, (rho, eps) = (1, 0.1) for x < 3 and
+// (1e-3, 1e-7) beyond, walls at x = 0 and 9, to t = 6; slab cross-section
+// `area`) at both orders through hydro_run, compared with
+// tests/oracle_data/leblanc.json: contact at 6.731, shock at 7.975, rho
+// 4e-3 between them. Checks conservation, a 1D flow, no eps below the cold
+// gas's, untouched gas ahead of the shock, the shock (last crossing of rho
+// = 2.5e-3, as convergence.py) and the shocked plateau's density against
+// the measured values, and order 2's L1 below order 1's (gate item 3).
+void check_leblanc(const std::string& deck_name, std::size_t num_cells, double area,
+                   const std::array<double, 2>& measured_shock,
+                   const std::array<double, 2>& measured_plateau) {
   const json oracle = read_oracle("leblanc");
   REQUIRE(oracle["t"].get<double>() == 6.0);
-  const double area = 0.04 * 0.04;
-  const std::array<double, 2> measured_shock = {7.719, 8.220};
-  const std::array<double, 2> measured_plateau = {4.84e-3, 4.00e-3};
   std::array<double, 2> l1{};
   for (const int order : {1, 2}) {
     INFO("order " << order);
-    json deck = read_deck_json("leblanc");
+    json deck = read_deck_json(deck_name);
     deck["scheme"] = {{"order", order}};
     const std::string name = "leblanc_order" + std::to_string(order);
     const auto deck_path = (std::filesystem::temp_directory_path() / (name + ".json")).string();
@@ -772,7 +837,7 @@ TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") 
     const auto vy = cells["velocity_y"].get<std::vector<double>>();
     const auto vz = cells["velocity_z"].get<std::vector<double>>();
     const auto eps = cells["internal_energy"].get<std::vector<double>>();
-    REQUIRE(rho.size() == 225);
+    REQUIRE(rho.size() == num_cells);
 
     // Walls do no work: mass and total energy stay the initial ones, per
     // unit cross-section 3 + 6e-3 and 0.3 + 6e-10.
@@ -798,7 +863,8 @@ TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") 
     const double shock = x[last] + (rho[last] - 2.5e-3) / (rho[last] - rho[last + 1]) *
                                        (x[last + 1] - x[last]);
     // From 0.5 ahead of the shock, the gas is untouched (order 1's
-    // precursor reaches 0.30 ahead of it, order 2's 0.08).
+    // precursor reaches 0.30 ahead of it on 225 uniform cells, order 2's
+    // 0.08).
     for (std::size_t c = 0; c < rho.size(); ++c) {
       if (x[c] < shock + 0.5) continue;
       INFO("cell " << c << " at x = " << x[c]);
@@ -820,8 +886,31 @@ TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") 
     CHECK_THAT(shock, WithinAbs(measured_shock[order - 1], 0.02));
     CHECK_THAT(rho_sum / m_sum, WithinRel(measured_plateau[order - 1], 0.02));
   }
-  // The v0.3 gate's item 3 at this resolution: order 2 below order 1.
   CHECK(l1[1] < l1[0]);
+}
+
+}  // namespace
+
+TEST_CASE("hydro_run: LeBlanc shock tube at both orders", "[app][integration]") {
+  // decks/leblanc.json (= decks/convergence/leblanc_225.json), 225x1x1
+  // uniform cubic cells. Reported, not gated (Task 19b): the v0.3 gate runs
+  // on the layered decks below. Measured: shock at 7.719 (order 1) and 8.220
+  // (order 2), plateau rho 4.84e-3 and 4.00e-3, L1 8.86e-2 and 4.13e-2;
+  // about 5 s and 25 s, optimized. The shock lags at first (it forms over a
+  // few cells) and then runs too fast: start-up entropy in the one heavy
+  // cell behind the contact holds the contact pressure too high (u 0.70
+  // behind the shock, exact 0.622). vv_catalog.md, "LeBlanc".
+  check_leblanc("leblanc", 225, 0.04 * 0.04, {7.719, 8.220}, {4.84e-3, 4.00e-3});
+}
+
+TEST_CASE("v0.3 gate: LeBlanc with a refined layer, 225 base", "[app][integration]") {
+  // decks/convergence/leblanc_layer_225.json: the 225-cell mesh with
+  // [2.96, 3] refined x64 (288 cells; Task 19c). The gate's shock bound is
+  // at the 900 base, in scripts/convergence.py; here the measured values.
+  // Measured: shock at 8.026 (order 1) and 7.996 (order 2), plateau rho
+  // 3.84e-3 and 4.08e-3, L1 7.23e-2 and 1.27e-2; about 9 s and 35 s.
+  check_leblanc("convergence/leblanc_layer_225", 288, 0.04 * 0.04, {8.026, 7.996},
+                {3.84e-3, 4.08e-3});
 }
 
 namespace {

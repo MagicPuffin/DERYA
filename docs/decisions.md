@@ -197,8 +197,9 @@ stop and report rather than deciding to override it.
     *Gated setup changed* (Task 19b, agreed with Luca 2026-11-26): the
     uniform mesh leaves the shock 0.3-0.4 ahead at 900 cells from
     start-up entropy in the few heavy cells at the contact (`vv_catalog.md`,
-    "Why the shock is ahead"), so the gate runs on meshes with [2.95, 3]
-    refined x64 (Task 19c); the uniform family stays, reported.
+    "Why the shock is ahead"), so the gate runs on meshes with [2.96, 3]
+    refined x64 (Task 19c; [2.95, 3] does not fit the 225 mesh); the
+    uniform family stays, reported.
   - *Sedov* (cylindrical): Cartesian quarter plane [0, 1.2]^2, one cell in
     z, symmetry walls on all sides (Maire et al.'s 2D setup and the
     thesis's cube cut to 2D), gamma = 1.4, rho = 1, P = 1e-6, at rest; the

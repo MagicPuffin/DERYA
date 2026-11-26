@@ -274,6 +274,27 @@ TEST_CASE("generate_structured_mesh: boundary faces tagged with their side",
   CHECK(count == std::array<Index, kFacesPerCell>{4, 4, 6, 6, 6, 6});
 }
 
+TEST_CASE("generate_structured_mesh: x_nodes grade the mesh in x", "[mesh]") {
+  // 3x2x1 with x nodes 0, 0.1, 0.5, 1: same connectivity as the uniform
+  // mesh, x from x_nodes at every (j, k), y and z unchanged.
+  StructuredMeshSpec spec{3, 2, 1, 0.0, 1.0, 0.0, 1.0, 0.0, 0.5};
+  const Mesh uniform = generate_structured_mesh(spec);
+  spec.x_nodes = {0.0, 0.1, 0.5, 1.0};
+  const Mesh m = generate_structured_mesh(spec);
+  CHECK(m.cell_nodes == uniform.cell_nodes);
+  CHECK(m.cell_faces == uniform.cell_faces);
+  CHECK(m.face_nodes == uniform.face_nodes);
+  CHECK(m.face_boundary == uniform.face_boundary);
+  CHECK(m.node_y == uniform.node_y);
+  CHECK(m.node_z == uniform.node_z);
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    CHECK(m.node_x[p] == spec.x_nodes[p % 4]);
+  }
+  check_face_consistency(m);
+  spec.x_nodes = {0.0, 0.5, 1.0};
+  CHECK_THROWS(generate_structured_mesh(spec));
+}
+
 TEST_CASE("apply_saltzman_skew: the standard 100x10 Saltzman mesh", "[mesh]") {
   // x_ij = i dx + (10 - j) dy sin(pi i dx), dx = dy = 0.01; z unchanged.
   StructuredMeshSpec spec{100, 10, 1, 0.0, 1.0, 0.0, 0.1, 0.0, 0.01};

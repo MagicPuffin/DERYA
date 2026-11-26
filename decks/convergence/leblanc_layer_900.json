@@ -1,0 +1,35 @@
+{
+  "mesh": {
+    "cells": [1152, 1, 1],
+    "min": [0.0, 0.0, 0.0],
+    "max": [9.0, 0.01, 0.01],
+    "x_segments": [[0.0, 2.96, 296], [2.96, 3.0, 256], [3.0, 9.0, 600]]
+  },
+  "eos": {"type": "ideal_gas", "gamma": 1.6666666666666667},
+  "boundaries": {
+    "x_min": "symmetry",
+    "x_max": "symmetry",
+    "y_min": "symmetry",
+    "y_max": "symmetry",
+    "z_min": "symmetry",
+    "z_max": "symmetry"
+  },
+  "initial": {
+    "background": {"density": 1e-3, "pressure": 6.666666666666667e-11},
+    "regions": [
+      {
+        "min": [0.0, 0.0, 0.0],
+        "max": [3.0, 0.01, 0.01],
+        "density": 1.0,
+        "pressure": 0.06666666666666668
+      }
+    ]
+  },
+  "time": {
+    "t_end": 6.0
+  },
+  "output": {
+    "path": "leblanc_layer_900_final.json",
+    "log_every": 0
+  }
+}

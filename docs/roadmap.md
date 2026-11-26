@@ -41,8 +41,9 @@ problems") at 3 resolutions, both orders (SP-V), through
 3. Order 2 has a smaller error than order 1 at every resolution.
 4. At the finest resolution, both orders:
    - *LeBlanc*: shock position (the last crossing of rho = 2.5e-3) within
-     0.1 of 7.975, on the meshes with [2.95, 3] refined x64 (base n =
-     225/450/900; agreed with Luca 2026-11-26, Task 19b option (c)). The
+     0.1 of 7.975, on the meshes with [2.96, 3] refined x64 (base n =
+     225/450/900; agreed with Luca 2026-11-26, Task 19b option (c)).
+     **Met** (Task 19c): 8.006 (order 1) and 7.988 (order 2). The
      uniform 225/450/900 family is reported, not gated: it measured 8.383
      and 8.311 at 900 cells (Task 19), because a uniform mesh resolves the
      heavy gas at the contact only at ~10^4 cells (Task 19b).

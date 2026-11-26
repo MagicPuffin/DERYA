@@ -651,33 +651,39 @@ scheme.
   - (c) Both: (b) for the gate, the uniform family kept as the reported
         literature-style setup
 
-## Task 19c — LeBlanc with a refined layer at the contact
+## Task 19c — LeBlanc with a refined layer at the contact — ✅ DONE (gate met)
 Decided in Task 19b, option (c): the gate runs on meshes with the heavy
 gas next to the contact refined; the uniform family stays, reported, not
 gated. Files: `src/mesh/mesh.{hpp,cpp}` (if the structured mesh needs
 non-uniform x), `src/io/deck.{hpp,cpp}`, `docs/deck_format.md`,
 `decks/convergence/leblanc_layer_*.json`, `scripts/convergence.py`,
 `tests/unit/test_{mesh,driver}.cpp`, `docs/{vv_catalog,roadmap}.md`.
-- [ ] A graded-mesh deck key, e.g. `mesh.x_segments: [[x0, x1, n], ...]`
-      (uniform cells per segment, contiguous, covering [min, max] in x).
-      Tests: node positions, volumes, a state at rest stays at rest, a
-      uniform deck is byte-identical with and without the key. Watch the
-      thin-slab guard and the timestep's characteristic length (cells
-      much shorter in x than the slab width)
-- [ ] Decks: base n = 225/450/900 (slab width 9/n, cubic cells away from
-      the layer), [2.95, 3] refined x64 (the 1D model's choice:
-      `leblanc_1d.py` gives +0.035 at 900, +0.035 at 450). Check against
-      the 1D model first (order 1 shock within ~1e-3 of the model's), and
-      the cost (model: 7600 steps at 900 base)
-- [ ] `convergence.py`: family `leblanc_layer`, gated (items 1-4, shock
-      within 0.1 of 7.975 at the finest); `leblanc` (uniform) reported,
-      not gated. L1 per unit cross-section as before
-- [ ] Tests: the ctest on the cheapest layered deck at both orders (the
-      gate items there); the uniform ctest stays
-- [ ] Order 2 on the layered mesh is new (the 1D model is order 1 only):
-      report what it gives, don't tune
-- [ ] Profile overlay for the layered 900 deck, both orders, beside the
-      uniform one in `vv_catalog.md`
+Also changed: `README.md`, `decisions.md`, the figure.
+- [x] A graded-mesh deck key, `mesh.x_segments: [[x0, x1, n], ...]`
+      (uniform cells per segment, contiguous, covering [min, max] in x),
+      filling a new `StructuredMeshSpec::x_nodes`. Tests: node positions
+      and connectivity, cell masses by region, the rejections, a state at
+      rest stays at rest (cells 0.01 to 0.24 wide, walls). Decks without
+      the key: the generator's path is unchanged and the Sod, Noh and
+      LeBlanc dumps are byte-identical to the previous build's. A deck
+      with one segment over the box gives the uniform nodes to 1e-15, not
+      bit for bit (segment ends are exact as written). The thin-slab guard
+      uses the smallest x cell; the timestep's length is min(dx, slab
+      width) on a slab, as it should be
+- [x] Decks: base n = 225/450/900 (slab width 9/n), **[2.96, 3]** refined
+      x64 (288/576/1152 cells): [2.95, 3] does not fit the 225 mesh. The
+      1D model gives +0.051/+0.035/+0.031; hydro_run's order-1 runs match
+      it exactly (same steps, shocks to 1e-4)
+- [x] `convergence.py`: family `leblanc_layer`, gated; `leblanc`
+      (uniform) reported, not gated; `--keep-dumps DIR`
+- [x] Tests: `v0.3 gate: LeBlanc with a refined layer, 225 base` at both
+      orders (~45 s alone; shared helper with the uniform ctest, which
+      stays)
+- [x] Order 2 on the layered mesh: shock +0.021, +0.021, +0.013; L1
+      1.27e-2, 5.73e-3, 2.12e-3 (rates 1.15, 1.44), 5-13 times below
+      order 1. **The gate passes** (`vv_catalog.md`, "Gated: a refined
+      layer at the contact")
+- [x] Profile overlay: `docs/figures/profiles_leblanc_layer_900.png`
 
 ## Task 20 — Polar mesh mapping
 Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
