@@ -257,6 +257,54 @@ TEST_CASE("corner_vectors: closure and GCL (n_cp = dV_c/dx_p)", "[hydro]") {
   }
 }
 
+TEST_CASE("cell_face_vectors: triangular prisms on a polar axis", "[hydro]") {
+  // Polar 3x4x2 down to r = 0: the i = 0 cells have one node twice per level
+  // (corners 0 and 3, 4 and 7), so a face can list a node twice, (a, a, q, r).
+  // cell_face_vectors matches corners to entries by node id, giving both
+  // corners the first a's entry; that is right because the two entries are
+  // equal (both (a - r) x (q - a) / 8). The corner vectors close, the corners
+  // at a node sum to dV_c/dx_p, and the volumes are the triangles' times dz.
+  StructuredMeshSpec spec{3, 4, 2, 0.0, 1.0, 0.0, 90.0, 0.0, 0.1};
+  spec.mapping = hydro::mesh::MeshMapping::Polar;
+  Mesh m = generate_structured_mesh(spec);
+  const double pi = std::acos(-1.0);
+  const double h = 1e-6;
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    INFO("cell " << c);
+    const auto corners = corner_vectors(cell_face_vectors(m)[c]);
+    Vec3 closure = {0.0, 0.0, 0.0};
+    for (const Vec3& n : corners) {
+      for (int d = 0; d < 3; ++d) closure[d] += n[d];
+    }
+    check_vec(closure, {0.0, 0.0, 0.0}, 1e-16);
+    const double r0 = (c % 3) / 3.0, r1 = (c % 3 + 1) / 3.0;
+    CHECK_THAT(cell_volume(m, c, cell_face_vectors(m)[c]),
+               WithinAbs(0.5 * (r1 * r1 - r0 * r0) * std::sin(pi / 8.0) * 0.05, 1e-16));
+    for (int k = 0; k < kNodesPerCell; ++k) {
+      const Index p = m.cell_nodes[c][k];
+      Vec3 sum = {0.0, 0.0, 0.0};
+      for (int k2 = 0; k2 < kNodesPerCell; ++k2) {
+        if (m.cell_nodes[c][k2] != p) continue;
+        for (int d = 0; d < 3; ++d) sum[d] += corners[k2][d];
+      }
+      std::vector<double>* coord[3] = {&m.node_x, &m.node_y, &m.node_z};
+      Vec3 grad;
+      for (int d = 0; d < 3; ++d) {
+        double& x = (*coord[d])[p];
+        const double x0 = x;
+        x = x0 + h;
+        const double v_plus = cell_volume(m, c, cell_face_vectors(m)[c]);
+        x = x0 - h;
+        const double v_minus = cell_volume(m, c, cell_face_vectors(m)[c]);
+        x = x0;
+        grad[d] = (v_plus - v_minus) / (2.0 * h);
+      }
+      INFO("corner " << k);
+      check_vec(sum, grad, 1e-10);
+    }
+  }
+}
+
 TEST_CASE("cell_volume: box cells and a non-planar cell", "[hydro]") {
   StructuredMeshSpec spec;
   spec.nx = 3;

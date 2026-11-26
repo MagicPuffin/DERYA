@@ -685,25 +685,37 @@ Also changed: `README.md`, `decisions.md`, the figure.
       layer at the contact")
 - [x] Profile overlay: `docs/figures/profiles_leblanc_layer_900.png`
 
-## Task 20 — Polar mesh mapping
+## Task 20 — Polar mesh mapping — ✅ DONE
 Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,
 `src/app/driver.cpp` (if the mapping needs it), `docs/deck_format.md`,
-`tests/unit/test_{mesh,bc,driver}.cpp`.
-- [ ] `mesh.mapping: "polar"`: the structured mesh's x range is r, its y
-      range is theta (unit to decide in Task 16), z unchanged; nodes at
+`tests/unit/test_{mesh,bc,driver}.cpp`. Also changed: `src/bc/bc.{hpp,cpp}`
+(named in the third item), `tests/unit/test_hydro.cpp` (the axis cells'
+face vectors), `README.md`, `decisions.md`. The driver needed nothing.
+- [x] `mesh.mapping: "polar"`: the structured mesh's x range is r, its y
+      range is theta (degrees, Task 16), z unchanged; nodes at
       (r cos theta, r sin theta, z). Sides keep their tags (x_min = inner
-      surface, x_max = outer, y_min/y_max the two radial planes)
-- [ ] Tests: total volume = the annular sector's (to the polygonal
-      approximation), face vectors close per cell (GCL), wall normals on
-      the theta = 0 and theta = pi/2 planes are the plane normals, a
-      uniform state at rest stays at rest with walls and outflow
-- [ ] r_min = 0 (Guderley): the axis cells are degenerate, their x_min
-      faces have zero area. Zero-area faces skipped in the wall
-      constraints (`src/bc/bc.cpp` normalizes without a check today) and
-      wherever a face normal is normalized; the axis node is pinned by the
-      two walls. Tests: no NaN on a mesh with r_min = 0, volumes positive,
-      a uniform state at rest stays at rest. If this cannot be made clean,
-      Guderley falls back to a Cartesian quarter plane (`decisions.md`)
+      surface, x_max = outer, y_min/y_max the two radial planes).
+      `StructuredMeshSpec::mapping`; theta spans at most 180 degrees, each
+      cell less than 180, r >= 0. cos/sin exact at multiples of 90 and
+      mirrored about 45 (theta = 30 and 60 swap x and y bit for bit). The
+      thin-slab guard measures theta cells as arcs at the innermost ring.
+      Cartesian dumps (Sod, Noh, Saltzman, LeBlanc, LeBlanc layer 225,
+      Taylor-Green) byte-identical to the previous build's
+- [x] Tests: total volume = the annular sector's polygonal approximation
+      (to 1e-15), face vectors close per cell (GCL), wall normals on the
+      theta = 0 and 90 planes are exactly (0, -1, 0) and (-1, 0, 0), a
+      uniform state at rest stays at rest with walls and outflow (both
+      orders, velocities below 1e-14)
+- [x] r_min = 0 (Guderley): the axis nodes are **one node per level**
+      (separate copies would neither be pinned nor have a regular M_p), the
+      axis cells triangular prisms, their x_min faces of zero area.
+      `wall_constraints` skips zero-area faces (the nodal solver already
+      did). The axis node is pinned by the two walls and stays at r = 0.
+      Tests: node numbering and merged corners, zero area exactly on the
+      axis faces only, no NaN in the wall constraints, corner vectors of
+      the prisms (closure, dV/dx_p), volumes positive, a uniform state at
+      rest stays at rest at both orders. No Cartesian fallback needed
+      (`decisions.md`)
 
 ## Task 21 — Prescribed time-dependent pressure boundary
 Files: `src/bc/bc.{hpp,cpp}`, `src/hydro/{hydro,scheme}.{hpp,cpp}`,

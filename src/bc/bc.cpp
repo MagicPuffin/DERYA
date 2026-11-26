@@ -72,6 +72,9 @@ WallConstraints wall_constraints(const mesh::Mesh& m, const BoundarySet& bcs) {
       for (int d = 0; d < 3; ++d) normal[d] += v[d];
     }
     const double norm = std::sqrt(dot(normal, normal));
+    // A zero-area face (the x_min side of a polar mesh on the axis) has no
+    // normal and constrains nothing; its nodes get their walls elsewhere.
+    if (norm == 0.0) continue;
     for (int d = 0; d < 3; ++d) normal[d] /= norm;
     const double value =
         bcs[side].type == BoundaryType::Piston ? dot(bcs[side].velocity, normal) : 0.0;

@@ -26,6 +26,7 @@ silently ignored setting. The parser is in `src/io/deck.cpp`.
 | `mesh.cells` | 3 integers ≥ 1 | yes | `nx, ny, nz` |
 | `mesh.min`, `mesh.max` | 3 numbers | yes | Box corners; `max > min` in every direction |
 | `mesh.x_segments` | array | no | Grades the mesh in x: `[[x0, x1, n], ...]`, `n` uniform cells on `[x0, x1]` each, contiguous (each `x0` equals the previous `x1`, exactly as written), from `mesh.min[0]` to `mesh.max[0]`, the `n` adding up to `mesh.cells[0]`. Not with `mesh.perturbation`. Example: `decks/convergence/leblanc_layer_225.json` |
+| `mesh.mapping` | string | no | `"cartesian"` (default) or `"polar"`: the box's x is the radius r (`mesh.min[0]` ≥ 0) and its y the angle theta in **degrees** (span at most 180, each cell less than 180), z unchanged; nodes at `(r cos theta, r sin theta, z)`. The sides keep their names: `x_min` the inner surface, `x_max` the outer, `y_min`/`y_max` the radial planes theta = `min[1]`/`max[1]`. The planes theta = 0, 90, 180 are exactly the coordinate planes. Walls go on the planes only; a curved side is `"outflow"` (a curved wall pins its nodes like an edge). With `min[0] = 0` the axis is one node per z level, the cells there triangular prisms and their `x_min` faces of zero area (any type; it acts on nothing). Works with `mesh.x_segments` (graded in r), not with `mesh.perturbation`. Regions and centroids are in the mapped x, y, z |
 | `mesh.perturbation` | string | no | Only `"saltzman"`: each node moves in x by `(y_max - y) sin(pi (x - x_min) / (x_max - x_min))` |
 | `eos.type` | string | yes | Only `"ideal_gas"` |
 | `eos.gamma` | number > 1 | yes | |
@@ -53,7 +54,9 @@ against the thesis's Table 3.1(b):
 
 The **thin-slab guard** warns when a direction with a single cell is
 thinner than the smallest cell of the multi-cell directions, because
-`lambda_c` would then limit dt for no physical reason.
+`lambda_c` would then limit dt for no physical reason. On a polar mesh the
+theta cells count as arcs, the shortest at the middle of the innermost
+ring.
 
 ## Dump (`"format": "hydro-dump-0"`)
 
@@ -88,7 +91,9 @@ from.
 The values are computed as in the dump, so the last step's lines equal the
 dump's entries exactly. Probing does not change the run: the dump is
 byte-identical with and without probes. Ids are in mesh order, cell
-`i + nx (j + ny k)` and node `i + (nx + 1) (j + (ny + 1) k)`. An id outside
+`i + nx (j + ny k)` and node `i + (nx + 1) (j + (ny + 1) k)`, except on a
+polar mesh down to r = 0, where each level's axis is one node (that of
+`j = 0`) and the later nodes close up (`src/mesh/mesh.hpp`). An id outside
 the mesh fails the run (status 1) before the first step; a value that is
 not a non-negative integer is a usage error (status 2). Each step with a
 probed cell costs one more geometry and thermo pass over the mesh.

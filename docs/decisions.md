@@ -262,6 +262,25 @@ stop and report rather than deciding to override it.
     is pinned, which is the symmetry the problem needs. If degenerate cells
     turn out not to work cleanly in Task 20, the fallback is a Cartesian
     quarter plane [0, 2]^2 (grid imprinting at the focus), decided there.
+    *Done in Task 20, no fallback needed:* on the axis the structured
+    nodes (0, j, k) are generated as **one node per level k**, so the i = 0
+    cells are triangular prisms (corners 0 and 3, 4 and 7 the same node).
+    Kept as separate nodes they would not be pinned (only the copies on the
+    two planes see a wall) and their M_p would be singular along their ray
+    (only the radial faces at theta_j touch them), so they would split.
+    The merged node sees every radial face, and the walls on theta = 0 and
+    90 plus z pin it (V_p = 0, it stays exactly at r = 0). The x_min faces
+    there have exactly zero area: `wall_constraints` skips them (the only
+    unchecked normalization; the nodal solver and impedances already
+    skipped S = 0) and an outflow there adds zero force. A face can list
+    the axis node twice, (a, a, q, r); `cell_face_vectors`' match by node
+    id gives both corners the first entry, which is right because the two
+    entries of a collapsed edge are equal ((a - r) x (q - a) / 8), checked
+    by a test. A pressure blob on a 30x20 axis mesh runs 0.2 at both orders
+    with no NaN and positive volumes (not a test, the setup is not round).
+    cos and sin of theta are exact at multiples of 90 degrees and mirror
+    images about 45 within a quadrant, so the planes are exact and the
+    mesh is symmetric about the diagonal bit for bit when the nodes are.
   - *Meshes and walls:* Cartesian for LeBlanc and Sedov, polar for Kidder
     and Guderley. The polar mapping takes the structured box's x range as
     r and its y range as theta in **degrees** (0 and 90 are exact in a

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -14,6 +15,7 @@ using hydro::mesh::kHexFaceNodes;
 using hydro::mesh::kNodesPerFace;
 using hydro::mesh::kNoCell;
 using hydro::mesh::Mesh;
+using hydro::mesh::MeshMapping;
 using hydro::mesh::StructuredMeshSpec;
 using hydro::mesh::apply_saltzman_skew;
 using hydro::mesh::face_area_vectors;
@@ -43,7 +45,8 @@ std::array<double, 3> node(const Mesh& m, Index n) {
 //   - each cell's local face l, read through kHexFaceNodes, is face
 //     cell_faces[l] with the same orientation if the cell owns it and the
 //     reversed orientation if it is the neighbor;
-//   - geometrically, each face's right-hand normal points out of its owner.
+//   - geometrically, each face's right-hand normal points out of its owner
+//     (skipped for a zero-area face, the x_min faces on a polar axis).
 void check_face_consistency(const Mesh& m) {
   for (Index c = 0; c < m.num_cells(); ++c) {
     for (int l = 0; l < kFacesPerCell; ++l) {
@@ -83,10 +86,57 @@ void check_face_consistency(const Mesh& m) {
       const auto p = node(m, n);
       for (int d = 0; d < 3; ++d) cell_c[d] += p[d] / 8.0;
     }
+    if (normal == std::array<double, 3>{0.0, 0.0, 0.0}) continue;
     double outward = 0.0;
     for (int d = 0; d < 3; ++d) outward += normal[d] * (face_c[d] - cell_c[d]);
     CHECK(outward > 0.0);
   }
+}
+
+// Area of cell c's bottom (-z) quad by the shoelace formula; on a mesh
+// extruded in z the cell's volume is this times its height.
+double bottom_area(const Mesh& m, Index c) {
+  const auto& cn = m.cell_nodes[c];
+  double area = 0.0;
+  for (int a = 0; a < 4; ++a) {
+    const Index p = cn[a], q = cn[(a + 1) % 4];
+    area += 0.5 * (m.node_x[p] * m.node_y[q] - m.node_x[q] * m.node_y[p]);
+  }
+  return area;
+}
+
+// Total area vector of face f (out of its owner).
+std::array<double, 3> face_vector(const Mesh& m, Index f) {
+  std::array<double, 3> total{};
+  for (const auto& v : face_area_vectors(m, f)) {
+    for (int d = 0; d < 3; ++d) total[d] += v[d];
+  }
+  return total;
+}
+
+// GCL: each cell's outward face vectors sum to zero, relative to its largest.
+void check_closed_cells(const Mesh& m) {
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    std::array<double, 3> sum{};
+    double scale = 0.0;
+    for (int l = 0; l < kFacesPerCell; ++l) {
+      const Index f = m.cell_faces[c][l];
+      const double sign = m.face_owner[f] == c ? 1.0 : -1.0;
+      const auto v = face_vector(m, f);
+      for (int d = 0; d < 3; ++d) {
+        sum[d] += sign * v[d];
+        scale = std::max(scale, std::abs(v[d]));
+      }
+    }
+    INFO("cell " << c);
+    for (int d = 0; d < 3; ++d) CHECK_THAT(sum[d], WithinAbs(0.0, 1e-15 * scale));
+  }
+}
+
+StructuredMeshSpec polar_spec(Index nx, Index ny, Index nz, double r_min, double r_max) {
+  StructuredMeshSpec spec{nx, ny, nz, r_min, r_max, 0.0, 90.0, 0.0, 0.1};
+  spec.mapping = MeshMapping::Polar;
+  return spec;
 }
 
 }  // namespace
@@ -330,4 +380,131 @@ TEST_CASE("apply_saltzman_skew: the standard 100x10 Saltzman mesh", "[mesh]") {
     total += area;
   }
   CHECK_THAT(total, WithinAbs(0.1, 1e-14));
+}
+
+TEST_CASE("polar mapping: a quarter annulus", "[mesh]") {
+  // r in [0.5, 1] (4 cells), theta in [0, 90] degrees (6 cells), z in
+  // [0, 0.1] (2 cells): the structured numbering and connectivity, nodes at
+  // (r cos theta, r sin theta, z).
+  const StructuredMeshSpec spec = polar_spec(4, 6, 2, 0.5, 1.0);
+  const Mesh m = generate_structured_mesh(spec);
+  StructuredMeshSpec box = spec;
+  box.mapping = MeshMapping::Cartesian;
+  const Mesh cartesian = generate_structured_mesh(box);
+  CHECK(m.cell_nodes == cartesian.cell_nodes);
+  CHECK(m.face_nodes == cartesian.face_nodes);
+  CHECK(m.face_boundary == cartesian.face_boundary);
+  CHECK(m.node_z == cartesian.node_z);
+  const double pi = std::acos(-1.0);
+  for (Index p = 0; p < m.num_nodes(); ++p) {
+    const double r = cartesian.node_x[p], theta = cartesian.node_y[p] * pi / 180.0;
+    INFO("node " << p);
+    CHECK_THAT(m.node_x[p], WithinAbs(r * std::cos(theta), 1e-15));
+    CHECK_THAT(m.node_y[p], WithinAbs(r * std::sin(theta), 1e-15));
+  }
+  auto node = [](Index i, Index j, Index k) { return k * 7 * 5 + j * 5 + i; };
+  for (Index k = 0; k <= 2; ++k) {
+    for (Index i = 0; i <= 4; ++i) {
+      // The planes theta = 0 and 90 exactly; theta = 30 and 60 mirror
+      // images about the diagonal, bit for bit.
+      CHECK(m.node_y[node(i, 0, k)] == 0.0);
+      CHECK(m.node_x[node(i, 6, k)] == 0.0);
+      CHECK(m.node_x[node(i, 2, k)] == m.node_y[node(i, 4, k)]);
+      CHECK(m.node_y[node(i, 2, k)] == m.node_x[node(i, 4, k)]);
+    }
+  }
+  check_face_consistency(m);
+  check_closed_cells(m);
+
+  // Every cell is an extruded planar quad, 1/2 (r1^2 - r0^2) sin(dtheta)
+  // in area; the total is the polygonal approximation of the sector.
+  const double dtheta = pi / 12.0;
+  double total = 0.0;
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Index i = c % 4;
+    const double r0 = 0.5 + 0.125 * i, r1 = r0 + 0.125;
+    INFO("cell " << c);
+    CHECK_THAT(bottom_area(m, c), WithinAbs(0.5 * (r1 * r1 - r0 * r0) * std::sin(dtheta), 1e-15));
+    total += bottom_area(m, c) * 0.05;
+  }
+  const double polygon = 6 * 0.5 * (1.0 - 0.25) * std::sin(dtheta) * 0.1;
+  CHECK_THAT(total, WithinAbs(polygon, 1e-15));
+  // ... which approaches the annular sector's pi/4 (1 - 0.25) 0.1 as
+  // sin(dtheta)/dtheta -> 1.
+  CHECK_THAT(total / (pi / 4.0 * 0.75 * 0.1), WithinAbs(std::sin(dtheta) / dtheta, 1e-14));
+}
+
+TEST_CASE("polar mapping: r_min = 0 has one node per level on the axis", "[mesh]") {
+  // 3x4x2 down to r = 0: the axis nodes (0, j, k) are one node per k, the
+  // i = 0 cells triangular prisms, their x_min faces of zero area.
+  const Mesh m = generate_structured_mesh(polar_spec(3, 4, 2, 0.0, 1.0));
+  CHECK(m.num_nodes() == (3 * 5 + 1) * 3);
+  CHECK(m.num_cells() == 3 * 4 * 2);
+  // Nodes: per level, the axis node, then (i >= 1, j = 0), then (i >= 1, j)
+  // for j = 1..4; level k starts at 16 k.
+  auto node = [](Index i, Index j, Index k) {
+    return i == 0 ? 16 * k : 16 * k + 1 + 3 * j + (i - 1);
+  };
+  for (Index k = 0; k <= 2; ++k) {
+    const Index a = node(0, 0, k);
+    CHECK(m.node_x[a] == 0.0);
+    CHECK(m.node_y[a] == 0.0);
+    CHECK_THAT(m.node_z[a], WithinAbs(0.05 * k, 1e-15));
+    CHECK(m.node_x[node(2, 4, k)] == 0.0);
+    CHECK_THAT(m.node_y[node(2, 4, k)], WithinAbs(2.0 / 3.0, 1e-15));
+  }
+  for (Index k = 0; k < 2; ++k) {
+    for (Index j = 0; j < 4; ++j) {
+      const auto& cn = m.cell_nodes[k * 12 + j * 3];
+      INFO("axis cell j = " << j << ", k = " << k);
+      CHECK(cn[0] == node(0, 0, k));
+      CHECK(cn[3] == node(0, 0, k));
+      CHECK(cn[4] == node(0, 0, k + 1));
+      CHECK(cn[7] == node(0, 0, k + 1));
+      CHECK(cn[1] == node(1, j, k));
+      CHECK(cn[2] == node(1, j + 1, k));
+    }
+  }
+  // Every node is in some cell.
+  std::vector<int> uses(m.num_nodes(), 0);
+  for (const auto& cn : m.cell_nodes) {
+    for (const Index p : cn) ++uses[p];
+  }
+  CHECK(std::count(uses.begin(), uses.end(), 0) == 0);
+
+  // Zero area exactly on the axis faces, nowhere else.
+  for (Index f = 0; f < m.num_faces(); ++f) {
+    const auto v = face_vector(m, f);
+    const bool zero = v == std::array<double, 3>{0.0, 0.0, 0.0};
+    INFO("face " << f);
+    CHECK(zero == (m.face_boundary[f] == 0));
+  }
+  check_face_consistency(m);
+  check_closed_cells(m);
+  const double pi = std::acos(-1.0);
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const Index i = c % 3;
+    const double r0 = i / 3.0, r1 = (i + 1) / 3.0;
+    INFO("cell " << c);
+    CHECK_THAT(bottom_area(m, c),
+               WithinAbs(0.5 * (r1 * r1 - r0 * r0) * std::sin(pi / 8.0), 1e-15));
+  }
+}
+
+TEST_CASE("polar mapping: rejected ranges", "[mesh]") {
+  CHECK_THROWS(generate_structured_mesh(polar_spec(2, 2, 1, -0.1, 1.0)));
+  StructuredMeshSpec spec = polar_spec(2, 2, 1, 0.5, 1.0);
+  spec.y_max = 180.5;
+  CHECK_THROWS(generate_structured_mesh(spec));
+  spec.y_min = spec.y_max = 10.0;
+  CHECK_THROWS(generate_structured_mesh(spec));
+  // A half plane is fine in two cells, not in one.
+  spec.y_min = -90.0;
+  spec.y_max = 90.0;
+  const Mesh half = generate_structured_mesh(spec);
+  CHECK(half.node_x[0] == 0.0);
+  CHECK(half.node_y[0] == -0.5);
+  check_closed_cells(half);
+  spec.ny = 1;
+  CHECK_THROWS(generate_structured_mesh(spec));
 }

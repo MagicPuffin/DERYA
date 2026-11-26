@@ -303,6 +303,107 @@ TEST_CASE("run: a uniform state at rest stays at rest on a graded mesh", "[app]"
   }
 }
 
+// A quarter annulus r in [r_min, 1], theta in [0, 90], 6x8x1, one cell of
+// 0.05 in z; walls on the radial planes and in z, outflow on the curved
+// sides, at rest at P = 1.
+json polar_deck(double r_min) {
+  json j = small_deck();
+  j["mesh"] = {{"cells", {6, 8, 1}}, {"min", {r_min, 0, 0}}, {"max", {1, 90, 0.05}},
+               {"mapping", "polar"}};
+  j["boundaries"] = {{"x_min", "outflow"}, {"x_max", "outflow"}, {"y_min", "symmetry"},
+                     {"y_max", "symmetry"}, {"z_min", "symmetry"}, {"z_max", "symmetry"}};
+  j["initial"] = {{"background", {{"density", 1.0}, {"pressure", 1.0}}}};
+  j["time"] = {{"t_end", 0.1}};
+  return j;
+}
+
+TEST_CASE("parse_deck: the polar mapping", "[io]") {
+  const Deck d = parse_deck(polar_deck(0.5).dump());
+  CHECK(d.mesh.mapping == hydro::mesh::MeshMapping::Polar);
+  CHECK(d.mesh.y_max == 90.0);
+  // dr = 1/12, arcs of (0.5 + 1/24) pi / 16 = 0.106 at the innermost ring:
+  // the 0.05 slab is the thinnest and warns; the box's 90 in y is not a
+  // length.
+  REQUIRE(d.warnings.size() == 1);
+  CHECK_THAT(d.warnings[0], ContainsSubstring("smallest in-plane cell size 0.0833"));
+  json thick = polar_deck(0.5);
+  thick["mesh"]["max"] = {1, 90, 0.09};
+  CHECK(parse_deck(thick.dump()).warnings.empty());
+  // On the axis (dr = 1/6) the innermost arcs are short, 1/12 pi / 16 =
+  // 0.0164.
+  json axis = polar_deck(0.0);
+  axis["mesh"]["max"] = {1, 90, 0.02};
+  CHECK(parse_deck(axis.dump()).warnings.empty());
+  axis["mesh"]["max"] = {1, 90, 0.01};
+  REQUIRE(parse_deck(axis.dump()).warnings.size() == 1);
+  CHECK_THAT(parse_deck(axis.dump()).warnings[0], ContainsSubstring("0.0163625"));
+
+  json cartesian = small_deck();
+  cartesian["mesh"]["mapping"] = "cartesian";
+  CHECK(parse_deck(cartesian.dump()).mesh.mapping == hydro::mesh::MeshMapping::Cartesian);
+  CHECK(parse_deck(small_deck().dump()).mesh.mapping == hydro::mesh::MeshMapping::Cartesian);
+
+  auto rejected = [&](const char* key, const json& value, const std::string& message) {
+    json bad = polar_deck(0.5);
+    bad["mesh"][key] = value;
+    check_rejected(bad, message);
+  };
+  rejected("mapping", "spherical", "mesh.mapping: expected \"cartesian\" or \"polar\"");
+  rejected("mapping", 1, "mesh.mapping: expected a string");
+  rejected("min", {-0.1, 0, 0}, "mesh.min[0]: polar: r must be >= 0");
+  rejected("max", {1, 200, 0.05}, "mesh.max[1]: polar: theta may span at most 180");
+  json one = polar_deck(0.5);
+  one["mesh"]["cells"] = {6, 1, 1};
+  one["mesh"]["max"] = {1, 180, 0.05};
+  check_rejected(one, "mesh.cells[1]: polar: each cell must span less than 180");
+  rejected("perturbation", "saltzman", "cannot be combined with mesh.perturbation");
+}
+
+TEST_CASE("run: a uniform state at rest stays at rest on a polar mesh", "[app]") {
+  // Walls on the planes, outflow on the curved sides (the inner one absent on
+  // the axis), both orders. On the axis the cells are triangular prisms with
+  // zero-area x_min faces; nothing there may produce a NaN.
+  for (const double r_min : {0.5, 0.0}) {
+    for (const int order : {1, 2}) {
+      INFO("r_min = " << r_min << ", order " << order);
+      json j = polar_deck(r_min);
+      j["scheme"] = {{"order", order}};
+      const Deck d = parse_deck(j.dump());
+      const HydroState s0 = hydro::app::initial_state(d);
+      std::ostringstream log;
+      const auto r = hydro::app::run(d, log);
+      CHECK(r.t == 0.1);
+      CHECK(r.steps > 5);
+      const auto& m = r.state.mesh;
+      CHECK(m.num_nodes() == s0.mesh.num_nodes());
+      for (Index c = 0; c < m.num_cells(); ++c) {
+        INFO("cell " << c);
+        CHECK(std::isfinite(r.state.total_energy[c]));
+        CHECK_THAT(r.state.vel_x[c], WithinAbs(0.0, 1e-14));
+        CHECK_THAT(r.state.vel_y[c], WithinAbs(0.0, 1e-14));
+        CHECK_THAT(r.state.vel_z[c], WithinAbs(0.0, 1e-14));
+      }
+      for (Index p = 0; p < m.num_nodes(); ++p) {
+        INFO("node " << p);
+        CHECK_THAT(m.node_x[p], WithinAbs(s0.mesh.node_x[p], 1e-14));
+        CHECK_THAT(m.node_y[p], WithinAbs(s0.mesh.node_y[p], 1e-14));
+      }
+      const auto faces = hydro::lagrangian::cell_face_vectors(m);
+      const auto faces0 = hydro::lagrangian::cell_face_vectors(s0.mesh);
+      for (Index c = 0; c < m.num_cells(); ++c) {
+        const double v = hydro::lagrangian::cell_volume(m, c, faces[c]);
+        CHECK(v > 0.0);
+        CHECK_THAT(v, WithinRel(hydro::lagrangian::cell_volume(s0.mesh, c, faces0[c]), 1e-12));
+      }
+    }
+  }
+  // The axis node stays exactly on the axis.
+  std::ostringstream log;
+  const auto r = hydro::app::run(parse_deck(polar_deck(0.0).dump()), log);
+  CHECK(r.state.mesh.node_x[0] == 0.0);
+  CHECK(r.state.mesh.node_y[0] == 0.0);
+}
+
 TEST_CASE("parse_deck: the scheme block", "[io]") {
   using hydro::lagrangian::Limiter;
   const Deck d = parse_deck(small_deck().dump());

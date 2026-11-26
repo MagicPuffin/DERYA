@@ -48,7 +48,8 @@ void apply_pressure_bcs(const mesh::Mesh& m, const BoundarySet& bcs,
 // Per node, an orthonormal basis of the normals of the wall faces (symmetry
 // or piston) at that node: empty off walls, one vector on a wall, two on an
 // edge where walls meet, three at a corner. Coplanar faces count once. A
-// face's normal is its total area vector, normalized.
+// face's normal is its total area vector, normalized; a face of zero area
+// (a polar mesh's axis side) is skipped.
 std::vector<std::vector<Vec3>> wall_normals(const mesh::Mesh& m,
                                             const BoundarySet& bcs);
 

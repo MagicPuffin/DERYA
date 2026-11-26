@@ -100,7 +100,7 @@ std::vector<double> parse_x_segments(const json& j, const std::string& path,
 
 mesh::StructuredMeshSpec parse_mesh(const json& j, MeshPerturbation& perturbation) {
   const std::string path = "mesh";
-  object(j, path, {"cells", "min", "max", "perturbation", "x_segments"});
+  object(j, path, {"cells", "min", "max", "perturbation", "x_segments", "mapping"});
   if (j.contains("perturbation")) {
     if (string(j.at("perturbation"), path + ".perturbation") != "saltzman") {
       fail(path + ".perturbation", "only \"saltzman\" is supported");
@@ -134,6 +134,23 @@ mesh::StructuredMeshSpec parse_mesh(const json& j, MeshPerturbation& perturbatio
       fail(path + ".x_segments", "cannot be combined with mesh.perturbation");
     }
     spec.x_nodes = parse_x_segments(j.at("x_segments"), path + ".x_segments", spec);
+  }
+  if (j.contains("mapping")) {
+    const std::string mapping = string(j.at("mapping"), path + ".mapping");
+    if (mapping == "polar") {
+      if (perturbation != MeshPerturbation::None) {
+        fail(path + ".mapping", "\"polar\" cannot be combined with mesh.perturbation");
+      }
+      if (!(spec.x_min >= 0.0)) fail(path + ".min[0]", "polar: r must be >= 0");
+      const double span = spec.y_max - spec.y_min;
+      if (!(span <= 180.0)) fail(path + ".max[1]", "polar: theta may span at most 180 degrees");
+      if (!(span / spec.ny < 180.0)) {
+        fail(path + ".cells[1]", "polar: each cell must span less than 180 degrees");
+      }
+      spec.mapping = mesh::MeshMapping::Polar;
+    } else if (mapping != "cartesian") {
+      fail(path + ".mapping", "expected \"cartesian\" or \"polar\"");
+    }
   }
   return spec;
 }
@@ -326,8 +343,15 @@ Deck read_deck(const std::string& path) {
 
 std::vector<std::string> thin_slab_warnings(const mesh::StructuredMeshSpec& spec) {
   const std::array<mesh::Index, 3> n = {spec.nx, spec.ny, spec.nz};
-  const std::array<double, 3> width = {spec.x_max - spec.x_min, spec.y_max - spec.y_min,
-                                       spec.z_max - spec.z_min};
+  std::array<double, 3> width = {spec.x_max - spec.x_min, spec.y_max - spec.y_min,
+                                 spec.z_max - spec.z_min};
+  if (spec.mapping == mesh::MeshMapping::Polar) {
+    // y is theta in degrees: its cells are arcs, the shortest at the middle
+    // of the innermost ring.
+    const double r0 = spec.x_nodes.empty() ? spec.x_min : spec.x_nodes[0];
+    const double r1 = spec.x_nodes.empty() ? spec.x_min + width[0] / spec.nx : spec.x_nodes[1];
+    width[1] = 0.5 * (r0 + r1) * width[1] * 3.14159265358979323846 / 180.0;
+  }
   static constexpr std::array<char, 3> kAxis = {'x', 'y', 'z'};
   double in_plane = std::numeric_limits<double>::infinity();
   for (int d = 0; d < 3; ++d) {

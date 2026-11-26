@@ -20,6 +20,7 @@ using hydro::bc::wall_constraints;
 using hydro::bc::wall_normals;
 using hydro::mesh::Index;
 using hydro::mesh::Mesh;
+using hydro::mesh::MeshMapping;
 using hydro::mesh::StructuredMeshSpec;
 using hydro::mesh::generate_structured_mesh;
 
@@ -216,4 +217,59 @@ TEST_CASE("outflow + symmetry: a uniform state at rest stays at rest", "[bc]") {
   const Mat3 M = {{{Z / 4, 0.0, 0.0}, {0.0, Z / 4, 0.0}, {0.0, 0.0, Z / 4}}};
   const Vec3 V = solve_nodal_velocity(M, B[corner], wall_normals(m, bcs)[corner]);
   check_vec(V, {0.0, 0.0, 0.0});
+}
+
+TEST_CASE("wall_normals: the radial planes of a polar mesh", "[bc]") {
+  // Quarter annulus r in [0.5, 1], theta in [0, 90], 3x4x1: walls on the
+  // planes theta = 0 (normal -y) and theta = 90 (normal -x) and in z, outflow
+  // on the curved sides (a curved wall would pin its nodes like an edge).
+  StructuredMeshSpec spec{3, 4, 1, 0.5, 1.0, 0.0, 90.0, 0.0, 0.1};
+  spec.mapping = MeshMapping::Polar;
+  const Mesh m = generate_structured_mesh(spec);
+  const BoundarySet bcs = {kOut, kOut, kSym, kSym, kSym, kSym};
+  const auto walls = wall_normals(m, bcs);
+  auto node = [](Index i, Index j, Index k) { return k * 5 * 4 + j * 4 + i; };
+  for (Index k = 0; k <= 1; ++k) {
+    for (Index i = 0; i <= 3; ++i) {
+      INFO("i = " << i << ", k = " << k);
+      const auto& low = walls[node(i, 0, k)];
+      REQUIRE(low.size() == 2);
+      CHECK(low[0] == Vec3{0.0, -1.0, 0.0});
+      CHECK(wall_axes(low) == std::vector<int>{1, 2});
+      const auto& high = walls[node(i, 4, k)];
+      REQUIRE(high.size() == 2);
+      CHECK(high[0] == Vec3{-1.0, 0.0, 0.0});
+      CHECK(wall_axes(high) == std::vector<int>{0, 2});
+      // Off the planes, only z.
+      CHECK(wall_axes(walls[node(i, 2, k)]) == std::vector<int>{2});
+    }
+  }
+}
+
+TEST_CASE("wall_constraints: zero-area faces on a polar axis are skipped", "[bc]") {
+  // Polar r in [0, 1], 2x3x1: the x_min faces have zero area. As a wall they
+  // add no normal (no NaN); the axis node is pinned by the two radial planes
+  // and z.
+  StructuredMeshSpec spec{2, 3, 1, 0.0, 1.0, 0.0, 90.0, 0.0, 0.1};
+  spec.mapping = MeshMapping::Polar;
+  const Mesh m = generate_structured_mesh(spec);
+  for (const BoundaryType axis : {kSym, kOut}) {
+    const BoundarySet bcs = {axis, kOut, kSym, kSym, kSym, kSym};
+    const auto c = wall_constraints(m, bcs);
+    for (Index p = 0; p < m.num_nodes(); ++p) {
+      INFO("node " << p);
+      for (const Vec3& n : c.normals[p]) {
+        for (int d = 0; d < 3; ++d) CHECK(std::isfinite(n[d]));
+      }
+    }
+    // Node 0 is the axis at z = 0: three walls, V_p = 0.
+    CHECK(wall_axes(c.normals[0]) == std::vector<int>{0, 1, 2});
+    const Vec3 V = solve_nodal_velocity(kM, kB, c.normals[0]);
+    CHECK(V == Vec3{0.0, 0.0, 0.0});
+    // An outflow axis adds no force: zero area.
+    std::vector<Vec3> B(m.num_nodes(), Vec3{});
+    apply_pressure_bcs(m, {kOut, kSym, kSym, kSym, kSym, kSym},
+                       std::vector<double>(m.num_cells(), 2.0), B);
+    for (const Vec3& b : B) CHECK(b == Vec3{0.0, 0.0, 0.0});
+  }
 }

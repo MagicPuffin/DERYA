@@ -68,10 +68,21 @@ struct Mesh {
   Index num_faces() const { return static_cast<Index>(face_nodes.size()); }
 };
 
+// How the structured box maps to space. Polar: the box's x is the radius r
+// (x_min >= 0) and its y the angle theta in degrees, z unchanged; node (r,
+// theta, z) goes to (r cos theta, r sin theta, z). The sides keep their tags:
+// x_min is the inner surface, x_max the outer, y_min and y_max the radial
+// planes theta = y_min and theta = y_max. 0 < y_max - y_min <= 180, and each
+// cell spans less than 180 degrees. cos and sin are exact at multiples of 90
+// degrees (the planes theta = 0, 90, 180 are exactly the coordinate planes)
+// and mirror-symmetric about 45 degrees within each quadrant.
+enum class MeshMapping { Cartesian, Polar };
+
 // Uniform nx-by-ny-by-nz hex mesh on [x_min, x_max] x [y_min, y_max] x
 // [z_min, z_max]. nz = 1 is the thin-slab "2D" mode. x_nodes, when given,
 // replaces the uniform x positions: nx + 1 increasing values from x_min to
-// x_max (a mesh graded in x, e.g. LeBlanc's refined layer).
+// x_max (a mesh graded in x, e.g. LeBlanc's refined layer). mapping then
+// maps the nodes (above).
 struct StructuredMeshSpec {
   Index nx = 1;
   Index ny = 1;
@@ -83,6 +94,7 @@ struct StructuredMeshSpec {
   double z_min = 0.0;
   double z_max = 1.0;
   std::vector<double> x_nodes;
+  MeshMapping mapping = MeshMapping::Cartesian;
 };
 
 // Numbering, with node (i, j, k) at (x_min + i*dx, y_min + j*dy, z_min + k*dz)
@@ -99,6 +111,12 @@ struct StructuredMeshSpec {
 //   - then z-normal faces, face (i, j, k) on z = z_k, k <= nz:
 //     Fx + Fy + k*ny*nx + j*nx + i,         Fy = nx*(ny+1)*nz
 //   - an interior face is owned by the lower-indexed of its two cells.
+// The polar mapping keeps this numbering, except on the axis (r = x_min = 0):
+// there the nodes (0, j, k) of one k are a single node, so the cells at i = 0
+// are triangular prisms (corners 0 and 3, and 4 and 7, are the same node) and
+// their x_min faces have zero area. Node (0, 0, k) keeps its id, the ids
+// (0, j > 0, k) are dropped and the later nodes renumbered in the same order.
+// The axis node is on both radial planes, so walls there pin it in x and y.
 Mesh generate_structured_mesh(const StructuredMeshSpec& spec);
 
 // Saltzman's skewed mesh (Dukowicz & Meltz 1992; the setup of Maire et al.,

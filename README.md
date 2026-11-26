@@ -31,6 +31,10 @@ Taylor-Green vortex converges at order ~2
 - Structured hexahedral mesh (`nz = 1` is the "2D" thin-slab mode), with
   nodal face-area vectors (paper Eq. 5)
 - Saltzman's skewed mesh as an optional perturbation of the structured mesh
+- Polar mapping of the structured mesh (`"mesh": {"mapping": "polar"}`):
+  x is the radius, y the angle in degrees, for quarter shells and quarter
+  discs. Down to r = 0 the axis is one node per level and the cells there
+  are triangular prisms; walls on the two radial planes pin it
 - Boundary conditions on the nodal solver: symmetry/reflecting walls,
   outflow, and pistons (walls moving with a prescribed velocity)
 - First-order Lagrangian step (paper Eqs. 1–4): nodal solver, corner forces,

@@ -90,7 +90,9 @@ Deck read_deck(const std::string& path);
 // Thin-slab guard (decisions.md, "Lagrangian timestep"): one warning per
 // single-cell direction that is thinner than the smallest cell size of the
 // multi-cell directions, since lambda_c would then limit dt for no physical
-// reason. Empty when every direction has several cells, or none has.
+// reason. Empty when every direction has several cells, or none has. On a
+// polar mesh the y cells are arcs, measured at the middle of the innermost
+// ring.
 std::vector<std::string> thin_slab_warnings(const mesh::StructuredMeshSpec& spec);
 
 }  // namespace hydro::io
