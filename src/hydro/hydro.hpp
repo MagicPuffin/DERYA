@@ -120,7 +120,7 @@ NodalSystem assemble_nodal_system(const HydroState& s,
                                   const std::vector<CornerValues>& impedance);
 
 // Nodal velocities V_p solving Eq. 4 with the two-shock Z_cfp, subject to the
-// boundary conditions (outflow pressures in B, symmetry and piston walls on
+// boundary conditions (outflow and prescribed pressures in B, symmetry and piston walls on
 // V_p). Z_cfp depends on V_p, so each node's system is nonlinear; it is the
 // gradient of a convex function of V_p, solved by Newton's method from the
 // mean of the surrounding cell velocities (moved onto the walls). Where M_p is
@@ -134,7 +134,7 @@ std::vector<Vec3> nodal_velocities(const HydroState& s,
 // Second order: the same solve with the corner values in B_p and in the
 // two-shock jump, from the mean of the corner velocities V~_c(x_p) at each
 // node. Outflow boundaries keep the owner cell's P_c as their prescribed
-// pressure.
+// pressure (and pressure boundaries their P*).
 std::vector<Vec3> nodal_velocities(const HydroState& s,
                                    const std::vector<CellFaceVectors>& faces,
                                    const CellThermo& thermo,
@@ -182,7 +182,8 @@ void update_cells(HydroState& s,
 void move_nodes(mesh::Mesh& m, const std::vector<Vec3>& node_velocity, double dt);
 
 // One first-order Lagrangian step of size dt: geometry, thermodynamics and
-// nodal solve at t^n, then Eq. 1 and Eq. 2. Returns the nodal velocities V_p
+// nodal solve at t^n, then Eq. 1 and Eq. 2. bcs are the boundaries at t^n
+// (bc::at_time; scheme_step does this). Returns the nodal velocities V_p
 // used (for the timestep controller's volume criterion).
 std::vector<Vec3> lagrangian_step(HydroState& s, const bc::BoundarySet& bcs,
                      const eos::EOS& eos, double dt);

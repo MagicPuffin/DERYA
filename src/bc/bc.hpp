@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <vector>
 
 #include "mesh.hpp"
@@ -20,27 +21,54 @@ using Mat3 = std::array<Vec3, 3>;
 //     boundary is transparent to a uniform state (zero-gradient outflow).
 //   - Piston: a wall moving with a prescribed velocity u_w, V_p . n = u_w . n
 //     (the tangential motion stays free, as on a symmetry wall).
-enum class BoundaryType { Symmetry, Outflow, Piston };
+//   - Pressure: a prescribed pressure P*(t), given as a constant or a law of
+//     time (Kidder's shell, thesis Eqs. 3.13-3.14), where Outflow has P_c.
+enum class BoundaryType { Symmetry, Outflow, Piston, Pressure };
+
+// Prescribed boundary pressure as a function of time.
+using PressureLaw = std::function<double(double t)>;
 
 // Boundary condition of one domain side. velocity is the wall velocity u_w
-// of a Piston side and is ignored otherwise. Implicitly constructible from a
-// BoundaryType, so {Symmetry, Outflow, ...} initializes a BoundarySet.
+// of a Piston side; pressure (a constant) or pressure_law (if set) is the P*
+// of a Pressure side; each is ignored on the other types. Implicitly
+// constructible from a BoundaryType, so {Symmetry, Outflow, ...} initializes
+// a BoundarySet.
 struct Boundary {
   BoundaryType type = BoundaryType::Symmetry;
   Vec3 velocity = {0.0, 0.0, 0.0};
+  double pressure = 0.0;
+  PressureLaw pressure_law;
 
   Boundary() = default;
   Boundary(BoundaryType t, const Vec3& v = {0.0, 0.0, 0.0}) : type(t), velocity(v) {}
 };
 
+// A Pressure boundary with P* = p at all times, or P* = law(t).
+Boundary pressure_boundary(double p);
+Boundary pressure_boundary(PressureLaw law);
+
+// Kidder's boundary pressure (Georges' thesis Eqs. 3.13-3.14):
+// P*(t) = p0 h(t)^(-2 gamma / (gamma - 1)), h(t) = sqrt(1 - (t / t_focus)^2),
+// p0 = P0(r_b) the initial pressure at the boundary radius. The law throws
+// std::runtime_error at t >= t_focus (h = 0, the shell has collapsed).
+PressureLaw kidder_pressure(double p0, double t_focus, double gamma);
+
 // One boundary per domain side, indexed by mesh::Mesh::face_boundary
 // (-x, +x, -y, +y, -z, +z).
 using BoundarySet = std::array<Boundary, mesh::kFacesPerCell>;
 
-// Adds the prescribed-pressure force of every outflow face f to its nodes:
-// B_p -= P*_f S_pf n_pf, with S_pf n_pf from mesh::face_area_vectors (outward,
-// since boundary faces are owned by the interior cell) and P*_f =
-// cell_pressure[face_owner[f]]. B holds one entry per mesh node.
+// The boundaries at time t: every Pressure side with a law gets pressure =
+// law(t) and no law; the other sides are copied. A step stage calls this
+// once, at its own time, and hands the result to the nodal solver.
+BoundarySet at_time(const BoundarySet& bcs, double t);
+
+// Adds the prescribed-pressure force of every outflow or pressure face f to
+// its nodes: B_p -= P*_f S_pf n_pf, with S_pf n_pf from
+// mesh::face_area_vectors (outward, since boundary faces are owned by the
+// interior cell), P*_f = cell_pressure[face_owner[f]] on an outflow face and
+// the side's pressure on a pressure face. B holds one entry per mesh node.
+// Throws std::logic_error on a pressure side whose law was not evaluated
+// (at_time) first.
 void apply_pressure_bcs(const mesh::Mesh& m, const BoundarySet& bcs,
                         const std::vector<double>& cell_pressure,
                         std::vector<Vec3>& B);

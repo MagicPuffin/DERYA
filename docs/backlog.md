@@ -57,8 +57,9 @@ Update the checkboxes as tasks land.
 - [x] Outflow BC: `apply_pressure_bcs()`, prescribed pressure P* = owner
       cell pressure, `B_p -= P* S_pf n_pf`. Test includes a uniform state at
       rest staying at rest under outflow + symmetry. Needed for Sod
-- [ ] (Kidder's boundary waits for its own task batch, now Task 21: a
-      prescribed, time-dependent pressure, an extension of the outflow BC)
+- [x] (Kidder's boundary waited for its own task batch: a prescribed,
+      time-dependent pressure, an extension of the outflow BC; done in
+      Task 21)
 
 ## Task 4 — Core Lagrangian solver (`src/hydro/`) — ✅ DONE
 First-order EUCCLHYD step, paper Sec. 2.2, in `src/hydro/hydro.{hpp,cpp}`
@@ -717,19 +718,38 @@ face vectors), `README.md`, `decisions.md`. The driver needed nothing.
       rest stays at rest at both orders. No Cartesian fallback needed
       (`decisions.md`)
 
-## Task 21 — Prescribed time-dependent pressure boundary
+## Task 21 — Prescribed time-dependent pressure boundary — ✅ DONE
 Files: `src/bc/bc.{hpp,cpp}`, `src/hydro/{hydro,scheme}.{hpp,cpp}`,
 `src/app/driver.cpp`, `src/io/deck.{hpp,cpp}`, `docs/deck_format.md`,
-tests.
-- [ ] A `Pressure` boundary type with P*(t) given (a constant, or a named
-      law such as Kidder's Eqs. 3.13-3.14), where today's outflow has P* =
-      P_c. The steps then need the time: each stage at its own time
-      (predictor at t^n, corrector stage at t^n + dt; check against thesis
-      Sec. 2.6.1), decided in the task and recorded
-- [ ] Tests: a constant P* equal to the gas pressure keeps a state at rest;
-      a constant P* above it pushes the boundary inward at the acoustic
-      rate (first step, by hand); P*(t) evaluated at the right stage times
-      (red when the corrector uses t^n)
+tests. Also changed: `README.md`, `decisions.md`. `hydro.cpp` and
+`deck.hpp` needed nothing (`hydro.hpp` only comments).
+- [x] `BoundaryType::Pressure`: P* a constant (`bc::pressure_boundary(p)`)
+      or a law (`pressure_boundary(PressureLaw)`, `bc::kidder_pressure(p0,
+      t_focus, gamma)`, Eqs. 3.13-3.14, throwing at t >= t_focus), where
+      outflow has P* = P_c; not a wall. Deck: `{"type": "pressure",
+      "value": P}` or `{"type": "pressure", "law": "kidder", "p0": ..,
+      "t_focus": ..}`, gamma from `eos`. Time: `bc::at_time(bcs, t)`
+      evaluates the laws once per stage, the nodal solver stays time-free
+      and `apply_pressure_bcs` throws `std::logic_error` on an unevaluated
+      law. `scheme_step` and `predictor_corrector_step` take t^n (before
+      dt); the driver passes `r.t`. Stage times from thesis Eq. 2.42
+      (checked in Sec. 2.6.1): order 1 at t^n, order 2's predictor at t^n
+      and corrector stage at t^n + dt (`decisions.md`). Sod, Noh,
+      Saltzman, Taylor-Green and LeBlanc layer 225 dumps byte-identical to
+      the previous build's
+- [x] Tests: P* equal to the gas pressure (a constant and a law) keeps a
+      state at rest on the distorted mesh at both orders; P* = P + 0.1
+      pushes the x_max nodes in at the two-shock speed solving
+      rho (a + Gamma |V|) |V| = dP (the acoustic rate dP / (rho a) for small
+      dP), with the last cell's dV and dE by hand (first step);
+      a recording law is called at {t^n} at order 1 and {t^n, t^n + dt} at
+      order 2, and the step equals the hand-built one with each stage's
+      constant P* (red when the corrector uses t^n: checked by mutation);
+      `apply_pressure_bcs` with a law, `at_time`, `kidder_pressure` values
+      (h = 1/2 at tau_1: x16 at gamma = 2, x32 at 5/3); deck parsing and
+      rejections; through the driver, a Kidder law with t_focus inside the
+      run fails one step earlier at order 2 (its corrector reaches t_focus
+      first)
 
 ## Task 22 — Sedov (cylindrical)
 Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.cpp` (the

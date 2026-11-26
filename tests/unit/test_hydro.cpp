@@ -24,6 +24,8 @@ using hydro::bc::Boundary;
 using hydro::bc::BoundarySet;
 using hydro::bc::BoundaryType;
 using hydro::bc::Mat3;
+using hydro::bc::at_time;
+using hydro::bc::pressure_boundary;
 using hydro::eos::IdealGasEOS;
 using hydro::lagrangian::CellFaceVectors;
 using hydro::lagrangian::CellGradients;
@@ -924,13 +926,13 @@ TEST_CASE("scheme_step: order 1 is lagrangian_step, bit for bit", "[hydro]") {
   HydroState b = a;
   for (int step = 0; step < 5; ++step) {
     const auto Va = lagrangian_step(a, kClosedBox, eos, 0.005);
-    const auto Vb = scheme_step(b, kClosedBox, eos, 0.005, Scheme{});
+    const auto Vb = scheme_step(b, kClosedBox, eos, 0.0, 0.005, Scheme{});
     CHECK(Va == Vb);
   }
   check_identical(a, b);
   CHECK(Scheme{}.order == 1);
   HydroState c = a;
-  CHECK_THROWS_AS(scheme_step(c, kClosedBox, eos, 0.005, Scheme{3, Limiter::SpV}),
+  CHECK_THROWS_AS(scheme_step(c, kClosedBox, eos, 0.0, 0.005, Scheme{3, Limiter::SpV}),
                   std::invalid_argument);
 }
 
@@ -944,7 +946,7 @@ TEST_CASE("predictor_corrector_step: thesis Eqs. 2.45-2.49", "[hydro]") {
     INFO((limiter == Limiter::SpV ? "sp-v" : "none"));
     const HydroState s0 = wavy_state();
     HydroState s = s0;
-    const auto V = predictor_corrector_step(s, kClosedBox, eos, dt, limiter);
+    const auto V = predictor_corrector_step(s, kClosedBox, eos, 0.0, dt, limiter);
 
     const StageFluxes f0 = second_order_fluxes(s0, kClosedBox, eos, limiter);
     HydroState predicted = s0;
@@ -1031,13 +1033,13 @@ TEST_CASE("predictor_corrector_step: closed box conserves mass, momentum, energy
       }
       const Vec3 p0 = total_momentum(s);
       HydroState stepped = s;
-      predictor_corrector_step(stepped, kClosedBox, eos, dt, limiter);
+      predictor_corrector_step(stepped, kClosedBox, eos, 0.0, dt, limiter);
       const Vec3 p1 = total_momentum(stepped);
       check_vec({p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]}, impulse, 1e-13 * scale);
     }
 
     for (int step = 0; step < 50; ++step) {
-      predictor_corrector_step(s, kClosedBox, eos, dt, limiter);
+      predictor_corrector_step(s, kClosedBox, eos, 0.0, dt, limiter);
     }
     CHECK(s.mass == mass0);
     CHECK_THAT(total_energy(s), WithinRel(e0, 1e-13));
@@ -1060,7 +1062,7 @@ TEST_CASE("predictor_corrector_step: uniform flow stays uniform", "[hydro]") {
   const Mesh initial = s.mesh;
   const double dt = 0.01;
   for (int step = 0; step < 5; ++step) {
-    const auto V = predictor_corrector_step(s, all_out, eos, dt, Limiter::SpV);
+    const auto V = predictor_corrector_step(s, all_out, eos, 0.0, dt, Limiter::SpV);
     for (Index p = 0; p < s.mesh.num_nodes(); ++p) check_vec(V[p], v);
   }
   for (Index c = 0; c < s.mesh.num_cells(); ++c) {
@@ -1088,7 +1090,7 @@ TEST_CASE("scheme_step: a uniform energy source heats a gas at rest uniformly",
     INFO("order " << order);
     HydroState s = uniform_state(distorted_mesh(), rho, {0.0, 0.0, 0.0}, eps);
     for (int step = 0; step < 5; ++step) {
-      scheme_step(s, kClosedBox, eos, dt, Scheme{order, Limiter::None}, source);
+      scheme_step(s, kClosedBox, eos, 0.0, dt, Scheme{order, Limiter::None}, source);
     }
     for (Index c = 0; c < s.mesh.num_cells(); ++c) {
       INFO("cell " << c);
@@ -1116,7 +1118,7 @@ TEST_CASE("scheme_step: an energy source enters each stage", "[hydro]") {
   REQUIRE(power0 > 0.1);
 
   HydroState first = s0;
-  scheme_step(first, kClosedBox, eos, dt, Scheme{1, Limiter::None}, source);
+  scheme_step(first, kClosedBox, eos, 0.0, dt, Scheme{1, Limiter::None}, source);
   CHECK_THAT(total_energy(first) - total_energy(s0), WithinRel(dt * power0, 1e-12));
 
   // The predicted geometry: the nodes of s^n moved by the first stage's V_p.
@@ -1129,13 +1131,148 @@ TEST_CASE("scheme_step: an energy source enters each stage", "[hydro]") {
   REQUIRE(std::abs(power1 - power0) > 1e-6 * power0);
 
   HydroState second = s0;
-  scheme_step(second, kClosedBox, eos, dt, Scheme{2, Limiter::SpV}, source);
+  scheme_step(second, kClosedBox, eos, 0.0, dt, Scheme{2, Limiter::SpV}, source);
   CHECK_THAT(total_energy(second) - total_energy(s0),
              WithinRel(0.5 * dt * (power0 + power1), 1e-10));
 
   // No source is the step without one, bit for bit.
   HydroState with_empty = s0, without = s0;
-  scheme_step(with_empty, kClosedBox, eos, dt, Scheme{2, Limiter::SpV}, EnergySource{});
-  predictor_corrector_step(without, kClosedBox, eos, dt, Limiter::SpV);
+  scheme_step(with_empty, kClosedBox, eos, 0.0, dt, Scheme{2, Limiter::SpV}, EnergySource{});
+  predictor_corrector_step(without, kClosedBox, eos, 0.0, dt, Limiter::SpV);
   check_identical(with_empty, without);
+}
+
+namespace {
+
+// 4x1x1 cells of [0,1]x[0,0.25]x[0,0.25].
+Mesh tube_mesh() {
+  StructuredMeshSpec spec;
+  spec.nx = 4;
+  spec.x_max = 1.0;
+  spec.y_max = 0.25;
+  spec.z_max = 0.25;
+  return generate_structured_mesh(spec);
+}
+
+}  // namespace
+
+TEST_CASE("scheme_step: a pressure boundary at the gas pressure keeps a state at rest",
+          "[hydro]") {
+  // P = (gamma - 1) rho eps = 1 everywhere, P* = 1 on both x sides (one a
+  // constant, one a law), on the distorted mesh: nothing moves at either order.
+  const IdealGasEOS eos(1.4);
+  const BoundarySet bcs = {pressure_boundary(1.0),
+                           pressure_boundary([](double) { return 1.0; }),
+                           kSym, kSym, kSym, kSym};
+  for (const int order : {1, 2}) {
+    INFO("order " << order);
+    HydroState s = uniform_state(distorted_mesh(), 1.0, {0.0, 0.0, 0.0}, 2.5);
+    const Mesh initial = s.mesh;
+    double t = 0.0;
+    for (int step = 0; step < 5; ++step) {
+      const auto V = scheme_step(s, bcs, eos, t, 0.01, Scheme{order, Limiter::SpV});
+      t += 0.01;
+      for (Index p = 0; p < s.mesh.num_nodes(); ++p) check_vec(V[p], {0.0, 0.0, 0.0}, 1e-14);
+    }
+    for (Index c = 0; c < s.mesh.num_cells(); ++c) {
+      INFO("cell " << c);
+      check_vec({s.vel_x[c], s.vel_y[c], s.vel_z[c]}, {0.0, 0.0, 0.0}, 1e-14);
+      CHECK_THAT(s.total_energy[c], WithinRel(2.5, 1e-14));
+    }
+    for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+      INFO("node " << p);
+      check_vec({s.mesh.node_x[p], s.mesh.node_y[p], s.mesh.node_z[p]},
+                {initial.node_x[p], initial.node_y[p], initial.node_z[p]}, 1e-15);
+    }
+  }
+}
+
+TEST_CASE("lagrangian_step: a pressure above the gas's pushes the boundary in",
+          "[hydro]") {
+  // Gas at rest, rho = 1, P = 1, a = sqrt(1.4), Gamma = 1.2, walls but for
+  // P* = P + dP on x_max. At an x_max node only the x_max face acts along x
+  // (the y and z faces are walls), so Eq. 4 reads Z |V| = dP with the
+  // two-shock Z = rho (a + Gamma |V|):
+  //   |V| = (-a + sqrt(a^2 + 4 Gamma dP / rho)) / (2 Gamma),
+  // inward (the acoustic rate dP / (rho a) for small dP). The x_max face's
+  // P_cfp is then P*, so the last cell gets dV = -dt dP / (rho dx) and
+  // dE = dt P* |V| / (rho dx), the boundary's work; the others stay at rest.
+  const IdealGasEOS eos(1.4);
+  const double rho = 1.0, P = 1.0, dP = 0.1, dt = 0.01, dx = 0.25;
+  const double a = std::sqrt(1.4), gamma_s = 1.2;
+  const double speed =
+      (-a + std::sqrt(a * a + 4.0 * gamma_s * dP / rho)) / (2.0 * gamma_s);
+  const BoundarySet bcs = {kSym, pressure_boundary(P + dP), kSym, kSym, kSym, kSym};
+  HydroState s = uniform_state(tube_mesh(), rho, {0.0, 0.0, 0.0}, P / (0.4 * rho));
+  const Mesh initial = s.mesh;
+  const auto V = lagrangian_step(s, bcs, eos, dt);
+  for (Index p = 0; p < s.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    const bool pushed = initial.node_x[p] == 1.0;
+    check_vec(V[p], {pushed ? -speed : 0.0, 0.0, 0.0}, 1e-12);
+    CHECK_THAT(s.mesh.node_x[p], WithinAbs(initial.node_x[p] - (pushed ? dt * speed : 0.0),
+                                           1e-14));
+  }
+  for (Index c = 0; c < 4; ++c) {
+    INFO("cell " << c);
+    const bool last = c == 3;
+    CHECK_THAT(s.vel_x[c], WithinAbs(last ? -dt * dP / (rho * dx) : 0.0, 1e-14));
+    CHECK_THAT(s.total_energy[c],
+               WithinAbs(P / (0.4 * rho) + (last ? dt * (P + dP) * speed / (rho * dx) : 0.0),
+                         1e-12));
+  }
+}
+
+TEST_CASE("scheme_step: pressure laws are evaluated at each stage's time", "[hydro]") {
+  // Thesis Eq. 2.42: the predictor uses F(t^n, U^n), the corrector stage
+  // F(t^n + dt, U^(1)). P*(t) = 1 + 20 t on x_max, recording its calls.
+  const IdealGasEOS eos(1.4);
+  const double t = 0.3, dt = 0.01;
+  std::vector<double> times;
+  const auto law = [](double time) { return 1.0 + 20.0 * time; };
+  const BoundarySet bcs = {kSym,
+                           pressure_boundary([&times, law](double time) {
+                             times.push_back(time);
+                             return law(time);
+                           }),
+                           kSym, kSym, kSym, kSym};
+  const HydroState s0 = uniform_state(tube_mesh(), 1.0, {0.0, 0.0, 0.0}, 2.5);
+
+  HydroState first = s0;
+  scheme_step(first, bcs, eos, t, dt, Scheme{1, Limiter::SpV});
+  CHECK(times == std::vector<double>{t});
+  HydroState by_hand = s0;
+  lagrangian_step(by_hand, {kSym, pressure_boundary(law(t)), kSym, kSym, kSym, kSym}, eos,
+                  dt);
+  check_identical(first, by_hand);
+  // The step itself takes evaluated boundaries only.
+  HydroState unevaluated = s0;
+  CHECK_THROWS_AS(lagrangian_step(unevaluated, bcs, eos, dt), std::logic_error);
+
+  times.clear();
+  HydroState second = s0;
+  const auto V = scheme_step(second, bcs, eos, t, dt, Scheme{2, Limiter::SpV});
+  CHECK(times == std::vector<double>{t, t + dt});
+
+  // The same step by hand, each stage with its constant P*.
+  const BoundarySet at_tn = {kSym, pressure_boundary(law(t)), kSym, kSym, kSym, kSym};
+  const BoundarySet at_tn1 = {kSym, pressure_boundary(law(t + dt)), kSym, kSym, kSym, kSym};
+  const StageFluxes f0 = second_order_fluxes(s0, at_tn, eos, Limiter::SpV);
+  HydroState predicted = s0;
+  update_cells(predicted, f0.forces, f0.node_velocity, dt);
+  move_nodes(predicted.mesh, f0.node_velocity, dt);
+  const StageFluxes f1 = second_order_fluxes(predicted, at_tn1, eos, Limiter::SpV);
+  const StageFluxes f1_at_tn = second_order_fluxes(predicted, at_tn, eos, Limiter::SpV);
+  double differ = 0.0;
+  for (Index p = 0; p < s0.mesh.num_nodes(); ++p) {
+    INFO("node " << p);
+    Vec3 mean;
+    for (int d = 0; d < 3; ++d) {
+      mean[d] = 0.5 * (f0.node_velocity[p][d] + f1.node_velocity[p][d]);
+      differ = std::max(differ, std::abs(f1.node_velocity[p][d] - f1_at_tn.node_velocity[p][d]));
+    }
+    CHECK(V[p] == mean);
+  }
+  // P* rises by 0.2 over the step, enough to tell the corrector's time apart.
+  CHECK(differ > 1e-3);
 }

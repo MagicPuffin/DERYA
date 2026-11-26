@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include "bc.hpp"
@@ -15,6 +16,9 @@ using hydro::bc::BoundaryType;
 using hydro::bc::Mat3;
 using hydro::bc::Vec3;
 using hydro::bc::apply_pressure_bcs;
+using hydro::bc::at_time;
+using hydro::bc::kidder_pressure;
+using hydro::bc::pressure_boundary;
 using hydro::bc::solve_nodal_velocity;
 using hydro::bc::wall_constraints;
 using hydro::bc::wall_normals;
@@ -272,4 +276,63 @@ TEST_CASE("wall_constraints: zero-area faces on a polar axis are skipped", "[bc]
                        std::vector<double>(m.num_cells(), 2.0), B);
     for (const Vec3& b : B) CHECK(b == Vec3{0.0, 0.0, 0.0});
   }
+}
+
+TEST_CASE("apply_pressure_bcs: a pressure side adds P* S n, a law once evaluated", "[bc]") {
+  // The mesh of the outflow test above: each x-face node has S_pf n_pf = 1.5
+  // along the outward normal. x_min is held at 3, x_max follows 2 + t; the
+  // cell pressures play no part.
+  StructuredMeshSpec spec;
+  spec.nx = 2;
+  spec.x_max = 1.0;
+  spec.y_max = 2.0;
+  spec.z_max = 3.0;
+  const Mesh m = generate_structured_mesh(spec);
+  const BoundarySet bcs = {pressure_boundary(3.0),
+                           pressure_boundary([](double t) { return 2.0 + t; }),
+                           kSym, kSym, kSym, kSym};
+  const std::vector<double> p = {1.0, 0.1};
+  std::vector<Vec3> B(m.num_nodes(), Vec3{0.25, -0.5, 0.0});
+  CHECK_THROWS_AS(apply_pressure_bcs(m, bcs, p, B), std::logic_error);
+
+  const BoundarySet now = at_time(bcs, 0.5);
+  CHECK(now[0].type == BoundaryType::Pressure);
+  CHECK(now[0].pressure == 3.0);
+  CHECK(now[1].type == BoundaryType::Pressure);
+  CHECK(now[1].pressure == 2.5);
+  CHECK(!now[1].pressure_law);
+  CHECK(bcs[1].pressure_law);  // the input keeps its law
+  CHECK(now[2].type == BoundaryType::Symmetry);
+
+  B.assign(m.num_nodes(), Vec3{0.25, -0.5, 0.0});
+  apply_pressure_bcs(m, now, p, B);
+  for (Index n = 0; n < m.num_nodes(); ++n) {
+    INFO("node " << n);
+    const int i = n % 3;
+    const double bx = i == 0 ? 0.25 + 3.0 * 1.5 : i == 2 ? 0.25 - 2.5 * 1.5 : 0.25;
+    check_vec(B[n], {bx, -0.5, 0.0});
+  }
+
+  // A pressure side is not a wall: the x-face nodes see only the y and z walls.
+  const auto walls = wall_normals(m, now);
+  for (Index n = 0; n < m.num_nodes(); ++n) {
+    INFO("node " << n);
+    CHECK(wall_axes(walls[n]) == std::vector<int>{1, 2});
+  }
+}
+
+TEST_CASE("kidder_pressure: thesis Eqs. 3.13-3.14", "[bc]") {
+  // P* = p0 h^(-2 gamma / (gamma - 1)), h = sqrt(1 - (t / t_focus)^2). At
+  // tau_1 = (sqrt 3 / 2) t_focus, h = 1/2: the factor is 2^4 at gamma = 2
+  // (Kidder in 2D) and 2^5 at gamma = 5/3 (the thesis's 3D case).
+  const double t_focus = 0.217945;
+  const double tau_1 = std::sqrt(3.0) / 2.0 * t_focus;
+  const auto p2 = kidder_pressure(4.0, t_focus, 2.0);
+  CHECK(p2(0.0) == 4.0);
+  CHECK_THAT(p2(tau_1), WithinAbs(4.0 * 16.0, 1e-12));
+  CHECK_THAT(p2(0.5 * t_focus), WithinAbs(4.0 * std::pow(0.75, -2.0), 1e-13));
+  const auto p53 = kidder_pressure(1.0, t_focus, 5.0 / 3.0);
+  CHECK_THAT(p53(tau_1), WithinAbs(32.0, 1e-12));
+  CHECK_THROWS_AS(p2(t_focus), std::runtime_error);
+  CHECK_THROWS_AS(p2(1.5 * t_focus), std::runtime_error);
 }

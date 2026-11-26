@@ -166,7 +166,32 @@ double parse_eos(const json& j) {
   return gamma;
 }
 
-bc::BoundarySet parse_boundaries(const json& j) {
+// A pressure side: {"type": "pressure", "value": P} or {"type": "pressure",
+// "law": "kidder", "p0": P0, "t_focus": t} (the law's gamma is the gas's).
+bc::Boundary parse_pressure_boundary(const json& b, const std::string& path, double gamma) {
+  object(b, path, {"type", "value", "law", "p0", "t_focus"});
+  if (b.contains("value") == b.contains("law")) {
+    fail(path, "expected exactly one of \"value\" and \"law\"");
+  }
+  if (b.contains("value")) {
+    const double p = number(b.at("value"), path + ".value");
+    if (!(p >= 0.0)) fail(path + ".value", "must be >= 0");
+    if (b.contains("p0") || b.contains("t_focus")) {
+      fail(path, "\"p0\" and \"t_focus\" belong to a law, not a constant value");
+    }
+    return bc::pressure_boundary(p);
+  }
+  if (string(b.at("law"), path + ".law") != "kidder") {
+    fail(path + ".law", "only \"kidder\" is supported");
+  }
+  const double p0 = number(required(b, path, "p0"), path + ".p0");
+  if (!(p0 >= 0.0)) fail(path + ".p0", "must be >= 0");
+  const double t_focus = number(required(b, path, "t_focus"), path + ".t_focus");
+  if (!(t_focus > 0.0)) fail(path + ".t_focus", "must be > 0");
+  return bc::pressure_boundary(bc::kidder_pressure(p0, t_focus, gamma));
+}
+
+bc::BoundarySet parse_boundaries(const json& j, double gamma) {
   const std::string path = "boundaries";
   // Ordered like mesh::Mesh::face_boundary.
   static constexpr std::array<const char*, mesh::kFacesPerCell> kSides = {
@@ -177,22 +202,30 @@ bc::BoundarySet parse_boundaries(const json& j) {
     const std::string key_path = path + "." + kSides[side];
     const json& b = required(j, path, kSides[side]);
     if (b.is_object()) {
-      object(b, key_path, {"type", "velocity"});
-      if (string(required(b, key_path, "type"), key_path + ".type") != "piston") {
-        fail(key_path + ".type", "expected \"piston\" (symmetry and outflow are plain strings)");
+      const std::string type = string(required(b, key_path, "type"), key_path + ".type");
+      if (type == "pressure") {
+        bcs[side] = parse_pressure_boundary(b, key_path, gamma);
+        continue;
       }
+      if (type != "piston") {
+        fail(key_path + ".type",
+             "expected \"piston\" or \"pressure\" (symmetry and outflow are plain strings)");
+      }
+      object(b, key_path, {"type", "velocity"});
       bcs[side] = bc::Boundary(bc::BoundaryType::Piston,
                                vec3(required(b, key_path, "velocity"), key_path + ".velocity"));
       continue;
     }
-    if (!b.is_string()) fail(key_path, "expected a string or a piston object");
+    if (!b.is_string()) fail(key_path, "expected a string or an object");
     const std::string type = b.get<std::string>();
     if (type == "symmetry") {
       bcs[side] = bc::BoundaryType::Symmetry;
     } else if (type == "outflow") {
       bcs[side] = bc::BoundaryType::Outflow;
     } else {
-      fail(key_path, "expected \"symmetry\", \"outflow\" or {\"type\": \"piston\", ...}");
+      fail(key_path,
+           "expected \"symmetry\", \"outflow\", or a {\"type\": \"piston\" or "
+           "\"pressure\", ...} object");
     }
   }
   return bcs;
@@ -323,7 +356,7 @@ Deck parse_deck(const std::string& json_text) {
   Deck deck;
   deck.mesh = parse_mesh(required(j, "deck", "mesh"), deck.perturbation);
   deck.gamma = parse_eos(required(j, "deck", "eos"));
-  deck.boundaries = parse_boundaries(required(j, "deck", "boundaries"));
+  deck.boundaries = parse_boundaries(required(j, "deck", "boundaries"), deck.gamma);
   parse_initial(required(j, "deck", "initial"), deck);
   if (j.contains("source")) parse_source(j.at("source"), deck);
   parse_time(required(j, "deck", "time"), deck);

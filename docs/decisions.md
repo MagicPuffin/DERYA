@@ -42,6 +42,21 @@ stop and report rather than deciding to override it.
   moving with velocity `u_w`, `V_p . n = u_w . n` (Task 8): the nodal solver
   starts from a guess with that normal part and takes Newton steps tangent
   to the walls, so the wall solve itself is unchanged.
+- **Prescribed pressure boundary, and the time the steps see** (Task 21,
+  for Kidder). `BoundaryType::Pressure` is outflow with a given `P*`
+  instead of the owner cell's `P_c`: a constant, or a law `P*(t)` (Kidder's
+  Eqs. 3.13-3.14, `bc::kidder_pressure`, with the gas's gamma). It is not a
+  wall. The nodal solver stays time-free: each stage calls
+  `bc::at_time(bcs, t)` once, which replaces every law by its value, and
+  `apply_pressure_bcs` throws `std::logic_error` on a law left unevaluated,
+  so a stage that forgot its time cannot pass silently. `scheme_step` and
+  `predictor_corrector_step` take `t^n` (an explicit argument, before
+  `dt`); `lagrangian_step` takes evaluated boundaries. Stage times, from
+  thesis Eq. 2.42 (PC is `U^(1) = U^n + dt F(t^n, U^n)`, `U^(n+1) = U^n +
+  dt/2 [F(t^n, U^n) + F(t^(n+1), U^(1))]`): order 1 at `t^n`; order 2's
+  predictor at `t^n`, its corrector stage at `t^n + dt`. The law is not
+  integrated over the step: each stage's `P*` is a point value, as are its
+  fluxes, so the corrector's mean is the trapezoidal rule in time.
 - **Two-shock (Dukowicz) impedance in the nodal solver**, not the paper's
   acoustic `Z_c = rho_c a_c`: `Z_cfp = rho_c (a_c + Gamma_c |(V_p - V_c) . n_pf|)`
   per cell, face and node, with `Gamma = (gamma+1)/2` for an ideal gas (from

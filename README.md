@@ -36,7 +36,9 @@ Taylor-Green vortex converges at order ~2
   discs. Down to r = 0 the axis is one node per level and the cells there
   are triangular prisms; walls on the two radial planes pin it
 - Boundary conditions on the nodal solver: symmetry/reflecting walls,
-  outflow, and pistons (walls moving with a prescribed velocity)
+  outflow, pistons (walls moving with a prescribed velocity), and a
+  prescribed pressure, constant or Kidder's time law, evaluated at each
+  stage's time
 - First-order Lagrangian step (paper Eqs. 1–4): nodal solver, corner forces,
   cell and node updates. It conserves mass, energy and volume to round-off
   in a closed box, and Sod on a 100×2×2 slab matches the exact solution

@@ -1,6 +1,9 @@
 #include "bc.hpp"
 
 #include <cmath>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
 
 namespace hydro::bc {
 
@@ -43,13 +46,58 @@ void add_if_independent(const Vec3& n, double value, std::vector<Vec3>& basis,
 
 }  // namespace
 
+Boundary pressure_boundary(double p) {
+  Boundary b(BoundaryType::Pressure);
+  b.pressure = p;
+  return b;
+}
+
+Boundary pressure_boundary(PressureLaw law) {
+  Boundary b(BoundaryType::Pressure);
+  b.pressure_law = std::move(law);
+  return b;
+}
+
+PressureLaw kidder_pressure(double p0, double t_focus, double gamma) {
+  const double exponent = -gamma / (gamma - 1.0);  // of h^2
+  return [p0, t_focus, exponent](double t) {
+    const double tau = t / t_focus;
+    const double h2 = 1.0 - tau * tau;
+    if (!(h2 > 0.0)) {
+      std::ostringstream msg;
+      msg << "kidder_pressure: t = " << t << " is not before t_focus = " << t_focus;
+      throw std::runtime_error(msg.str());
+    }
+    return p0 * std::pow(h2, exponent);
+  };
+}
+
+BoundarySet at_time(const BoundarySet& bcs, double t) {
+  BoundarySet result = bcs;
+  for (Boundary& b : result) {
+    if (b.type != BoundaryType::Pressure || !b.pressure_law) continue;
+    b.pressure = b.pressure_law(t);
+    b.pressure_law = nullptr;
+  }
+  return result;
+}
+
 void apply_pressure_bcs(const mesh::Mesh& m, const BoundarySet& bcs,
                         const std::vector<double>& cell_pressure,
                         std::vector<Vec3>& B) {
+  for (const Boundary& b : bcs) {
+    if (b.type == BoundaryType::Pressure && b.pressure_law) {
+      throw std::logic_error(
+          "apply_pressure_bcs: a pressure law not evaluated at the stage time (bc::at_time)");
+    }
+  }
   for (mesh::Index f = 0; f < m.num_faces(); ++f) {
     const int side = m.face_boundary[f];
-    if (side == mesh::kInteriorFace || bcs[side].type != BoundaryType::Outflow) continue;
-    const double p_star = cell_pressure[m.face_owner[f]];
+    if (side == mesh::kInteriorFace) continue;
+    const BoundaryType type = bcs[side].type;
+    if (type != BoundaryType::Outflow && type != BoundaryType::Pressure) continue;
+    const double p_star =
+        type == BoundaryType::Outflow ? cell_pressure[m.face_owner[f]] : bcs[side].pressure;
     const auto vecs = mesh::face_area_vectors(m, f);
     for (int n = 0; n < mesh::kNodesPerFace; ++n) {
       Vec3& b = B[m.face_nodes[f][n]];
@@ -66,7 +114,9 @@ WallConstraints wall_constraints(const mesh::Mesh& m, const BoundarySet& bcs) {
   std::vector<std::vector<double>> values(m.num_nodes());
   for (mesh::Index f = 0; f < m.num_faces(); ++f) {
     const int side = m.face_boundary[f];
-    if (side == mesh::kInteriorFace || bcs[side].type == BoundaryType::Outflow) continue;
+    if (side == mesh::kInteriorFace) continue;
+    const BoundaryType type = bcs[side].type;
+    if (type == BoundaryType::Outflow || type == BoundaryType::Pressure) continue;
     Vec3 normal = {0.0, 0.0, 0.0};
     for (const auto& v : mesh::face_area_vectors(m, f)) {
       for (int d = 0; d < 3; ++d) normal[d] += v[d];

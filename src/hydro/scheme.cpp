@@ -56,18 +56,21 @@ StageFluxes second_order_fluxes(const HydroState& s, const bc::BoundarySet& bcs,
 }
 
 std::vector<Vec3> predictor_corrector_step(HydroState& s, const bc::BoundarySet& bcs,
-                                           const eos::EOS& eos, double dt,
+                                           const eos::EOS& eos, double t, double dt,
                                            Limiter limiter,
                                            const EnergySource& source) {
-  // Predictor (Eqs. 2.45-2.46): forward Euler to s^(1).
-  const StageFluxes stage0 = second_order_fluxes(s, bcs, eos, limiter, source);
+  // Predictor (Eqs. 2.45-2.46): forward Euler to s^(1), F(t^n, U^n).
+  const StageFluxes stage0 =
+      second_order_fluxes(s, bc::at_time(bcs, t), eos, limiter, source);
   HydroState predicted = s;
   update_cells(predicted, stage0.forces, stage0.node_velocity, dt);
   apply_source(predicted, stage0.source_power, dt);
   move_nodes(predicted.mesh, stage0.node_velocity, dt);
 
-  // Corrector (Eqs. 2.47-2.49): from s^n, each stage's fluxes over dt / 2.
-  const StageFluxes stage1 = second_order_fluxes(predicted, bcs, eos, limiter, source);
+  // Corrector (Eqs. 2.47-2.49): from s^n, each stage's fluxes over dt / 2, the
+  // second F(t^n + dt, U^(1)) (Eq. 2.42).
+  const StageFluxes stage1 =
+      second_order_fluxes(predicted, bc::at_time(bcs, t + dt), eos, limiter, source);
   const double half = 0.5 * dt;
   update_cells(s, stage0.forces, stage0.node_velocity, half);
   update_cells(s, stage1.forces, stage1.node_velocity, half);
@@ -86,18 +89,19 @@ std::vector<Vec3> predictor_corrector_step(HydroState& s, const bc::BoundarySet&
 }
 
 std::vector<Vec3> scheme_step(HydroState& s, const bc::BoundarySet& bcs,
-                              const eos::EOS& eos, double dt, const Scheme& scheme,
-                              const EnergySource& source) {
+                              const eos::EOS& eos, double t, double dt,
+                              const Scheme& scheme, const EnergySource& source) {
   switch (scheme.order) {
     case 1: {
-      if (!source) return lagrangian_step(s, bcs, eos, dt);
+      const bc::BoundarySet now = bc::at_time(bcs, t);
+      if (!source) return lagrangian_step(s, now, eos, dt);
       const auto power = source_power(s, cell_face_vectors(s.mesh), source);
-      auto V = lagrangian_step(s, bcs, eos, dt);
+      auto V = lagrangian_step(s, now, eos, dt);
       apply_source(s, power, dt);
       return V;
     }
     case 2:
-      return predictor_corrector_step(s, bcs, eos, dt, scheme.limiter, source);
+      return predictor_corrector_step(s, bcs, eos, t, dt, scheme.limiter, source);
     default:
       throw std::invalid_argument("scheme_step: order must be 1 or 2, not " +
                                   std::to_string(scheme.order));

@@ -227,10 +227,80 @@ TEST_CASE("parse_deck: piston boundaries and the Saltzman perturbation", "[io]")
   check_rejected(bad, "boundaries.x_min.speed: unknown key");
   bad = j;
   bad["boundaries"]["x_max"] = 3;
-  check_rejected(bad, "boundaries.x_max: expected a string or a piston object");
+  check_rejected(bad, "boundaries.x_max: expected a string or an object");
   bad = j;
   bad["mesh"]["perturbation"] = "random";
   check_rejected(bad, "mesh.perturbation");
+}
+
+TEST_CASE("parse_deck: pressure boundaries, constant or Kidder's law", "[io]") {
+  json j = small_deck();
+  j["boundaries"]["x_min"] = {{"type", "pressure"}, {"value", 2.5}};
+  j["boundaries"]["x_max"] = {
+      {"type", "pressure"}, {"law", "kidder"}, {"p0", 3.0}, {"t_focus", 0.5}};
+  const Deck d = parse_deck(j.dump());
+  CHECK(d.boundaries[0].type == BoundaryType::Pressure);
+  CHECK(d.boundaries[0].pressure == 2.5);
+  CHECK(!d.boundaries[0].pressure_law);
+  CHECK(d.boundaries[1].type == BoundaryType::Pressure);
+  REQUIRE(d.boundaries[1].pressure_law);
+  // The law's gamma is the gas's, 1.4: P* = 3 (1 - (t / 0.5)^2)^(-3.5).
+  const auto now = hydro::bc::at_time(d.boundaries, 0.25);
+  CHECK(now[0].pressure == 2.5);
+  CHECK_THAT(now[1].pressure, WithinRel(3.0 * std::pow(0.75, -3.5), 1e-14));
+
+  json bad = j;
+  bad["boundaries"]["x_min"]["law"] = "kidder";
+  check_rejected(bad, "boundaries.x_min: expected exactly one of \"value\" and \"law\"");
+  bad = j;
+  bad["boundaries"]["x_min"].erase("value");
+  check_rejected(bad, "boundaries.x_min: expected exactly one of");
+  bad = j;
+  bad["boundaries"]["x_min"]["value"] = -1.0;
+  check_rejected(bad, "boundaries.x_min.value: must be >= 0");
+  bad = j;
+  bad["boundaries"]["x_min"]["t_focus"] = 1.0;
+  check_rejected(bad, "boundaries.x_min: \"p0\" and \"t_focus\" belong to a law");
+  bad = j;
+  bad["boundaries"]["x_min"]["velocity"] = {0, 0, 0};
+  check_rejected(bad, "boundaries.x_min.velocity: unknown key");
+  bad = j;
+  bad["boundaries"]["x_max"]["law"] = "linear";
+  check_rejected(bad, "boundaries.x_max.law: only \"kidder\"");
+  bad = j;
+  bad["boundaries"]["x_max"].erase("t_focus");
+  check_rejected(bad, "boundaries.x_max.t_focus: missing");
+  bad = j;
+  bad["boundaries"]["x_max"]["t_focus"] = 0.0;
+  check_rejected(bad, "boundaries.x_max.t_focus: must be > 0");
+  bad = j;
+  bad["boundaries"]["x_max"]["p0"] = -2.0;
+  check_rejected(bad, "boundaries.x_max.p0: must be >= 0");
+  bad = j;
+  bad["boundaries"]["x_max"]["type"] = "inflow";
+  check_rejected(bad, "boundaries.x_max.type");
+}
+
+TEST_CASE("run: the steps see the time, through a pressure law", "[app]") {
+  // A gas at rest at P = 1 with Kidder's law on x_max, t_focus inside the
+  // run: the law throws from the first stage evaluated at t >= t_focus. With
+  // dt_initial = 0.01 and the 1.01 growth limit the steps are 0.0101, then
+  // 0.010201; t_focus = 0.015. Order 1 evaluates the law at t^n only and
+  // fails at step 3 (from t = 0.020301); order 2 also at t^n + dt, so it
+  // fails at step 2 (from t = 0.0101, its corrector at 0.020301).
+  json j = small_deck();
+  j["initial"] = {{"background", {{"density", 1.0}, {"pressure", 1.0}}}};
+  j["boundaries"]["x_max"] = {
+      {"type", "pressure"}, {"law", "kidder"}, {"p0", 1.0}, {"t_focus", 0.015}};
+  j["time"]["dt_initial"] = 0.01;
+  std::ostringstream log;
+  CHECK_THROWS_WITH(hydro::app::run(parse_deck(j.dump()), log),
+                    ContainsSubstring("step 3 from t = 0.020301 ") &&
+                        ContainsSubstring("kidder_pressure: t = 0.020301 "));
+  j["scheme"] = {{"order", 2}};
+  CHECK_THROWS_WITH(hydro::app::run(parse_deck(j.dump()), log),
+                    ContainsSubstring("step 2 from t = 0.0101 ") &&
+                        ContainsSubstring("kidder_pressure: t = 0.020301 "));
 }
 
 TEST_CASE("parse_deck: x_segments grade the mesh in x", "[io]") {
