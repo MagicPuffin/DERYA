@@ -296,7 +296,9 @@ runs to t = 1:
 
 below order 1 at both (0.166, 0.116). Not adopted: it changes the scheme
 (and possibly the v0.2 dumps), so it is a decision for its own task, as
-the Task 16 plan says for an SP-V failure on Sedov (`backlog.md`, Task 22).
+the Task 16 plan says for an SP-V failure on Sedov. Decided (Luca,
+2026-11-26): fix the direction rule rather than switch to the MM limiter;
+`backlog.md`, Task 22b.
 
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every

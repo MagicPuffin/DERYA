@@ -79,8 +79,8 @@ Taylor-Green vortex converges at order ~2
 - Cylindrical Sedov (`decks/convergence/sedov_*.json`, v0.3, a point
   blast set with `initial.energy_spike`): runs at first order with the
   shock within 0.01 of the exact r = 1 at 120x120. Second order with the
-  SP-V limiter fails early (a limiter defect ahead of the shock, decision
-  open; see [docs/vv_catalog.md](docs/vv_catalog.md))
+  SP-V limiter fails early (a limiter defect ahead of the shock, fix
+  planned in Task 22b; see [docs/vv_catalog.md](docs/vv_catalog.md))
 - Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
   energy source that keeps it stationary): the second-order scheme
   converges at order ~2 on this smooth flow (L1 pressure order 1.95 at

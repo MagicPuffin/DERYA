@@ -751,7 +751,7 @@ tests. Also changed: `README.md`, `decisions.md`. `hydro.cpp` and
       run fails one step earlier at order 2 (its corrector reaches t_focus
       first)
 
-## Task 22 — Sedov (cylindrical) — ⛔ BLOCKED at order 2 (SP-V fails; decision open)
+## Task 22 — Sedov (cylindrical) — ✅ DONE at order 1; order 2 in Task 22b
 Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.{hpp,cpp}` (the
 energy-spike initialization), `scripts/{gen_oracle_data,convergence}.py`,
 oracle data, tests, `docs/vv_catalog.md`. Also changed:
@@ -782,7 +782,8 @@ oracle data, tests, `docs/vv_catalog.md`. Also changed:
       (Task 13), so the radial gradient is left unlimited. With no limiter
       order 2 runs; with the threshold at 1e-2 (throwaway build) it runs
       and beats order 1 (L1 0.110 and 0.048 at 30 and 60, shock 0.981 and
-      0.991). **Decision for Luca**, its own task either way:
+      0.991). **Decision** (Luca, 2026-11-26): **(a)**, built in Task
+      22b. The options were:
   - (a) Fix the SP-V direction rule (e.g. a relative threshold like 1e-2,
         or u_c from the pressure gradient when |V_c| is small against its
         neighbours), re-checking the v0.2 dumps and gate. Smallest change;
@@ -798,6 +799,34 @@ oracle data, tests, `docs/vv_catalog.md`. Also changed:
 - [x] Profile overlay, order 1 at 120: `docs/figures/profiles_sedov_120.png`
       (density, radial u, P, eps against r). Order 2 waits for the fix. The
       thesis's Figs. 3.13-3.15 are the spherical problem, so not overlaid
+
+## Task 22b — SP-V velocity direction for near-rest cells; Sedov at order 2
+Decided in Task 22, option (a): the SP-V rule for the direction u_c is
+fixed rather than replaced by the MM limiter. Files:
+`src/hydro/limiter.{hpp,cpp}`, `tests/unit/test_limiter.cpp`,
+`tests/unit/test_driver.cpp`, `scripts/convergence.py` (if needed),
+`docs/{decisions,vv_catalog,roadmap}.md`, `README.md`, the Sedov figure.
+- [ ] The rule: u_c = V_c / |V_c| only when |V_c| is not small against
+      the largest |V_c'| over C(P(c)); otherwise the pressure-gradient
+      direction, else e_x. Today "small" is 1e-8 (Task 13, against Sod's
+      1e-17 round-off); Sedov's ahead-of-shock precursor is ~2e-7 and
+      tangential. Task 22's throwaway build used 1e-2 and ran Sedov at
+      30 and 60. Pick and justify the threshold (or an equivalent
+      criterion), not tuned to the gate; record it in `decisions.md`,
+      "Limiter: SP-V"
+- [ ] Unit test first (red before, green after): a cell at near-rest with
+      a tiny tangential V_c, neighbours carrying a radial velocity
+      gradient, gets chi_V < 1 (limited along the gradient)
+- [ ] Regressions: the Sod, Noh, Saltzman, LeBlanc layer 225 and
+      Taylor-Green order-2 dumps compared with the previous build's
+      (byte-identical, or the change measured and explained); the v0.2
+      gate still passes; Sod's mirror columns still at round-off
+- [ ] Sedov at order 2 on 30/60/120: runs to t = 1, L1 below order 1's,
+      shock within 0.05 of 1 at the finest; `v0.3` ctest at 30 extended to
+      both orders (measured values); the overlay with both orders
+- [ ] Cost: order 2 at 120 is ~1 h (Task 22). Agree with Luca whether
+      120 stays the finest Sedov mesh or the budget is raised; run it
+      either way for the gate, alone on the machine, and report the time
 
 ## Task 23 — Kidder isentropic compression (cylindrical shell)
 Files: decks, deck/driver support for the initial profile (as
