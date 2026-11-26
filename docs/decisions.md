@@ -226,7 +226,11 @@ stop and report rather than deciding to override it.
     1.4), so the quarter plane gets **E = 0.246019 per unit length**. The
     literature's 0.244816 (Maire et al.) puts the shock at r = 0.9988.
     The deck gives the energy per unit length in z; the driver multiplies
-    by the slab thickness, so the decks differ only in cell counts. Final
+    by the slab thickness, so the decks differ only in cell counts
+    (`initial.energy_spike`, Task 22: the energy replaces the corner
+    cell's background internal energy, split by mass if several cells
+    share the point, so the total is E L_z plus the other cells'
+    background, 0.246019 + 3.6e-6 per unit length). Final
     time t = 1, peak density 6 at the shock (the strong-shock limit).
     Polar mesh rejected for Sedov: it would need degenerate cells at the
     origin, where the energy goes, and the Cartesian mesh is the standard

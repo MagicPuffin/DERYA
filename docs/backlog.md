@@ -751,28 +751,53 @@ tests. Also changed: `README.md`, `decisions.md`. `hydro.cpp` and
       run fails one step earlier at order 2 (its corrector reaches t_focus
       first)
 
-## Task 22 — Sedov (cylindrical)
-Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.cpp` (the
+## Task 22 — Sedov (cylindrical) — ⛔ BLOCKED at order 2 (SP-V fails; decision open)
+Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.{hpp,cpp}` (the
 energy-spike initialization), `scripts/{gen_oracle_data,convergence}.py`,
-oracle data, tests, `docs/vv_catalog.md`.
-- [ ] Initialization: total energy E deposited in the cell(s) touching the
-      origin (a deck key, e.g. `initial.energy_spike: {"at": [0,0,0],
-      "energy_per_length": E}`; the driver multiplies by the slab
-      thickness), the rest from the background. E = 0.246019 for the
-      quarter plane (shock at r = 1 at t = 1; `decisions.md`)
-- [ ] Oracle: ExactPack `Sedov(geometry=2, eblast=4 x 0.246019)` (not
-      `CylindricalSedov`'s default energy, whose shock is at 0.75) at
-      t = 1, fine-sampled, with
-      the shock as a jump; radial L1 metric in `convergence.py`
-- [ ] Tests: total energy conserved to round-off; shock radius and peak
-      density within Task 16's bounds; symmetry spread; the gate on the
-      cheap resolutions
-- [ ] Risk (thesis Sec. 3.5): node crossing along the axes and non-convex
-      cells at 45 degrees. If SP-V does not hold, the MM limiter (thesis
-      Sec. 2.4) becomes its own task
-- [ ] Profile overlay: density (and P, u) scatter against r over the
-      exact profile, both orders at the finest mesh; the thesis's Figs.
-      3.13-3.15 digitized beside it if they are readable
+oracle data, tests, `docs/vv_catalog.md`. Also changed:
+`scripts/plot_comparison.py` (`--radial`), `docs/{deck_format,decisions}.md`,
+`README.md`, the figure.
+- [x] Initialization: `initial.energy_spike: {"at": [x, y, z],
+      "energy_per_length": E}`; E L_z (slab thickness) goes into the cells
+      with a node at `at`, split by mass, replacing their background eps.
+      Decks `decks/convergence/sedov_{30,60,120}.json`, E = 0.246019.
+      Tests: parsing and rejections; the corner cell holds E L_z, an
+      interior node's four cells share it, a point with no node throws
+- [x] Oracle: ExactPack `Sedov(geometry=2, eblast=4 x 0.246019)` at t = 1,
+      every 0.001 on r in [0, 1.7] (the box corner is at 1.697), shock at
+      1.0000005 as the jump (`tests/oracle_data/sedov.json`). Family
+      `sedov` in `convergence.py`: radial L1 per unit length, shock = the
+      densest cell's radius (gated within 0.05 of 1 at the finest), peak
+      rho and the symmetry spread reported
+- [x] Tests (order 1): `hydro_run: cylindrical Sedov at order 1, 30x30`
+      (~7 s): energy and mass to 1e-12, v_z ~ 0, diagonal mirror symmetry,
+      the gas ahead untouched, shock within 0.05 of 1 and at the measured
+      0.9677, peak rho 5.007, radial L1 0.1664. Order 1 at 30/60/120: L1
+      0.166, 0.116, 0.052; shock 0.968, 0.981, 0.992 (`vv_catalog.md`,
+      "Sedov")
+- [ ] **Order 2 with SP-V fails** at every resolution (negative eps in a
+      cold cell just ahead of the shock, step 85 at n = 30). Cause: SP-V
+      limits V only along u_c = V_c/|V_c|, and a ~1e-7 tangential
+      precursor velocity passes the 1e-8 "negligible speed" threshold
+      (Task 13), so the radial gradient is left unlimited. With no limiter
+      order 2 runs; with the threshold at 1e-2 (throwaway build) it runs
+      and beats order 1 (L1 0.110 and 0.048 at 30 and 60, shock 0.981 and
+      0.991). **Decision for Luca**, its own task either way:
+  - (a) Fix the SP-V direction rule (e.g. a relative threshold like 1e-2,
+        or u_c from the pressure gradient when |V_c| is small against its
+        neighbours), re-checking the v0.2 dumps and gate. Smallest change;
+        the rule for V_c ~ 0 is already our choice, not the paper's
+  - (b) The MM limiter (thesis Sec. 2.4), as Task 16 planned for an SP-V
+        failure on Sedov
+- [ ] Cost: order 1 at 120 took 5185 steps, 32 min with the machine
+      shared (steps x3.2 per doubling: dt is set by the hot core). Order 2
+      at 120 would be ~1 h, above the ~15 min budget; the 120 size (or the
+      budget) needs revisiting with the decision above
+- [x] Risk (thesis Sec. 3.5): at order 1 no node crossing and no
+      tangling up to 120 (it runs; mirror symmetric to 7e-14)
+- [x] Profile overlay, order 1 at 120: `docs/figures/profiles_sedov_120.png`
+      (density, radial u, P, eps against r). Order 2 waits for the fix. The
+      thesis's Figs. 3.13-3.15 are the spherical problem, so not overlaid
 
 ## Task 23 — Kidder isentropic compression (cylindrical shell)
 Files: decks, deck/driver support for the initial profile (as

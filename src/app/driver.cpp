@@ -31,6 +31,40 @@ bool inside(const io::Region& r, const Vec3& x) {
   return true;
 }
 
+// Deposits the deck's energy spike (io::EnergySpike) into s.
+void deposit_energy_spike(const io::Deck& deck, HydroState& s) {
+  const io::EnergySpike& spike = *deck.energy_spike;
+  const mesh::Mesh& m = s.mesh;
+  const double size = std::hypot(deck.mesh.x_max - deck.mesh.x_min,
+                                 deck.mesh.y_max - deck.mesh.y_min,
+                                 deck.mesh.z_max - deck.mesh.z_min);
+  const double tol = 1e-12 * size;
+  std::vector<Index> cells;
+  double mass = 0.0;
+  for (Index c = 0; c < m.num_cells(); ++c) {
+    const bool touches = std::any_of(m.cell_nodes[c].begin(), m.cell_nodes[c].end(),
+                                     [&](Index p) {
+                                       return std::hypot(m.node_x[p] - spike.at[0],
+                                                         m.node_y[p] - spike.at[1],
+                                                         m.node_z[p] - spike.at[2]) <= tol;
+                                     });
+    if (!touches) continue;
+    cells.push_back(c);
+    mass += s.mass[c];
+  }
+  if (cells.empty()) {
+    std::ostringstream msg;
+    msg << "initial_state: no cell has a node at the energy spike's point (" << spike.at[0]
+        << ", " << spike.at[1] << ", " << spike.at[2] << ")";
+    throw std::runtime_error(msg.str());
+  }
+  const double eps = spike.energy_per_length * (deck.mesh.z_max - deck.mesh.z_min) / mass;
+  for (const Index c : cells) {
+    s.total_energy[c] = eps + 0.5 * (s.vel_x[c] * s.vel_x[c] + s.vel_y[c] * s.vel_y[c] +
+                                     s.vel_z[c] * s.vel_z[c]);
+  }
+}
+
 constexpr double kPi = 3.14159265358979323846;
 
 void check_probe_ids(const std::vector<Index>& ids, Index count, const char* what) {
@@ -151,7 +185,9 @@ HydroState initial_state(const io::Deck& deck) {
     vz[c] = st.velocity[2];
     eps[c] = st.pressure / ((deck.gamma - 1.0) * st.density);
   }
-  return lagrangian::make_state(std::move(m), rho, vx, vy, vz, eps);
+  HydroState s = lagrangian::make_state(std::move(m), rho, vx, vy, vz, eps);
+  if (deck.energy_spike) deposit_energy_spike(deck, s);
+  return s;
 }
 
 RunResult run(const io::Deck& deck, std::ostream& log, const Probes& probes) {

@@ -18,6 +18,7 @@ import warnings
 import numpy as np
 from exactpack.solvers.noh import PlanarNoh
 from exactpack.solvers.riemann.ep_riemann import IGEOS_Solver
+from exactpack.solvers.sedov import Sedov
 
 OUT_DIR = pathlib.Path(__file__).parent.parent / "tests" / "oracle_data"
 
@@ -137,12 +138,45 @@ def gen_saltzman():
     }
 
 
+def gen_sedov():
+    """Cylindrical Sedov (decisions.md, "v0.3 test problems"): gamma = 1.4,
+    rho0 = 1, a cold gas at rest, the blast at the origin. ExactPack's
+    eblast is for the full plane, so it is 4 x 0.246019, the quarter plane's
+    energy per unit length (shock at r = 1 at t = 1; CylindricalSedov's
+    default energy puts it at 0.75). Sampled every 0.001 on r in [0, 1.7]
+    (the box [0, 1.2]^2 reaches r = 1.697; the 120 mesh's cell is 0.01),
+    with the shock (at 1.0000005) as the one jump."""
+    gamma, t, e_quarter = 1.4, 1.0, 0.246019
+    solver = Sedov(geometry=2, gamma=gamma, rho0=1.0, omega=0.0, eblast=4.0 * e_quarter)
+    r = np.linspace(0.0, 1.7, 1701)
+    with warnings.catch_warnings():
+        # Its self-similar integrals overflow toward the origin.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        result = solver(r, t=t)
+    return {
+        "case": "sedov",
+        "description": "Cylindrical Sedov, ExactPack Sedov(geometry=2), gamma = 1.4, "
+                       "rho0 = 1, eblast = 4 x 0.246019 (quarter plane 0.246019 per "
+                       "unit length); x is the radius",
+        "t": t,
+        "gamma": gamma,
+        "energy_per_length_quarter": e_quarter,
+        "x": r.tolist(),
+        "density": result["density"].tolist(),
+        "pressure": result["pressure"].tolist(),
+        "velocity": result["velocity"].tolist(),
+        "specific_internal_energy": result["specific_internal_energy"].tolist(),
+        "jumps": [float(j) for j in result.jumps],
+    }
+
+
 CASES = {
     "sod": gen_sod,
     "noh": gen_noh,
     "saltzman": gen_saltzman,
     "leblanc": gen_leblanc,
-    # "sedov": ..., "guderley": ... — added as
+    "sedov": gen_sedov,
+    # "guderley": ... — added as
     # each test lands in the v0.1/v0.2/v0.3 backlog, one CASES entry at a time.
 }
 

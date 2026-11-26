@@ -21,7 +21,9 @@ double taylor_green_source(const io::TaylorGreen& tg, double gamma, const lagran
 // each cell takes the background state, overridden by every region whose box
 // [min, max) contains its centroid (the last such region wins); or, for a
 // Taylor-Green deck, the profile at its centroid.
-// eps = P / ((gamma - 1) rho).
+// eps = P / ((gamma - 1) rho), except in the cells of the deck's energy
+// spike (io::EnergySpike), whose eps holds the spike's energy. Throws
+// std::runtime_error if no cell has a node at the spike's point.
 lagrangian::HydroState initial_state(const io::Deck& deck);
 
 // The deck's energy source (empty for none).

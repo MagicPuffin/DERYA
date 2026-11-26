@@ -9,14 +9,16 @@ and order 2 of one deck) overlay on the same axes, labeled by --labels. The exac
 specific_internal_energy, else P / ((gamma - 1) rho) with gamma from
 --gamma, the oracle, or 1.4, in that order. --log puts panels on a log
 scale (LeBlanc's density and pressure span 3 and 9 decades). --xlim narrows
-the x range. Run on demand, not from ctest.
+the x range. --radial plots against the radius r = |(x, y)| of each
+centroid instead (the cylindrical problems; the oracle's x is then r), with
+the radial velocity (V . (x, y)) / r. Run on demand, not from ctest.
 
 Usage:
   python3 scripts/plot_comparison.py DUMP [DUMP ...]
                                      [--oracle tests/oracle_data/sod.json]
                                      [--labels L ...] [--gamma G]
                                      [--log density pressure ...]
-                                     [--xlim X0 X1] [-o comparison.png]
+                                     [--xlim X0 X1] [--radial] [-o comparison.png]
 """
 import argparse
 import json
@@ -62,6 +64,8 @@ def main():
                         help="panels on a log y scale")
     parser.add_argument("--xlim", type=float, nargs=2, default=None,
                         help="x range (default: the meshes' current extent)")
+    parser.add_argument("--radial", action="store_true",
+                        help="against the centroid radius in x-y, radial velocity")
     parser.add_argument("-o", "--output", type=pathlib.Path,
                         default=pathlib.Path("comparison.png"))
     args = parser.parse_args()
@@ -86,8 +90,17 @@ def main():
     else:
         gamma = args.gamma or oracle.get("gamma", 1.4)
         eps_ex = p_ex / ((gamma - 1.0) * rho_ex)
+    if args.radial:
+        for dump in dumps:
+            cells = dump["cells"]
+            r = np.hypot(cells["centroid_x"], cells["centroid_y"])
+            cells["radius"] = r.tolist()
+            cells["velocity_r"] = ((np.asarray(cells["velocity_x"]) * cells["centroid_x"] +
+                                    np.asarray(cells["velocity_y"]) * cells["centroid_y"])
+                                   / r).tolist()
+    abscissa = "radius" if args.radial else "centroid_x"
     panels = [("density", "density", rho_ex),
-              ("velocity", "velocity_x", oracle["velocity"]),
+              ("velocity", "velocity_r" if args.radial else "velocity_x", oracle["velocity"]),
               ("pressure", "pressure", p_ex),
               ("internal energy", "internal_energy", eps_ex)]
     log_keys = set(args.log)
@@ -97,7 +110,7 @@ def main():
         ax.plot(*with_jumps(x_ex, exact, jumps), color="0.2", lw=1.2, label="exact",
                 zorder=3)
         for k, (dump, label) in enumerate(zip(dumps, labels)):
-            ax.plot(dump["cells"]["centroid_x"], dump["cells"][key], "o", ms=3,
+            ax.plot(dump["cells"][abscissa], dump["cells"][key], "o", ms=3,
                     mfc=SERIES[k], mec="white", mew=0.4, label=label, zorder=2)
         ax.set_ylabel(name)
         if key in log_keys:
@@ -105,12 +118,14 @@ def main():
         ax.grid(alpha=0.3)
     if args.xlim:
         axes[0, 0].set_xlim(*args.xlim)
+    elif args.radial:
+        axes[0, 0].set_xlim(0.0, max(max(d["cells"]["radius"]) for d in dumps))
     else:
         # The mesh moves: show where the gas is now, not the oracle's whole range.
         nodes_x = [x for dump in dumps for x in dump["nodes"]["x"]]
         axes[0, 0].set_xlim(min(nodes_x), max(nodes_x))
     for ax in axes[1]:
-        ax.set_xlabel("x")
+        ax.set_xlabel("r" if args.radial else "x")
     axes[0, 0].legend()
     first = dumps[0]
     fig.suptitle(f"{oracle['case']} at t = {first['t']:g}, "

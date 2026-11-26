@@ -63,8 +63,8 @@ Taylor-Green vortex converges at order ~2
   of first order. Sod on the same slab: L1 density error 0.0072 (first
   order: 0.0195), flow still exactly 1D. Noh and Saltzman run at second
   order too, with smaller errors than first order
-- `scripts/convergence.py`: runs Sod, Noh and Saltzman at 50/100/200 cells
-  and LeBlanc at 225/450/900 (`decks/convergence/`) at both orders,
+- `scripts/convergence.py`: runs Sod, Noh and Saltzman at 50/100/200 cells,
+  LeBlanc at 225/450/900 and Sedov at 30/60/120 (`decks/convergence/`) at both orders,
   tabulates L1 density errors and rates, checks the v0.2 gate (and
   LeBlanc's shock position) and plots error against resolution
 - LeBlanc shock tube (`decks/leblanc.json`, v0.3): runs at both orders
@@ -76,6 +76,11 @@ Taylor-Green vortex converges at order ~2
   order 2 and the v0.3 gate passes. `scripts/leblanc_1d.py` (an independent
   1D model of the first-order step) shows it (see
   [docs/vv_catalog.md](docs/vv_catalog.md))
+- Cylindrical Sedov (`decks/convergence/sedov_*.json`, v0.3, a point
+  blast set with `initial.energy_spike`): runs at first order with the
+  shock within 0.01 of the exact r = 1 at 120x120. Second order with the
+  SP-V limiter fails early (a limiter defect ahead of the shock, decision
+  open; see [docs/vv_catalog.md](docs/vv_catalog.md))
 - Taylor-Green vortex (`decks/taylor_green.json`, with the prescribed
   energy source that keeps it stationary): the second-order scheme
   converges at order ~2 on this smooth flow (L1 pressure order 1.95 at

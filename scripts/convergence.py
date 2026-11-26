@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
-"""Convergence of Sod, Noh, Saltzman and LeBlanc: L1 density errors and rates.
+"""Convergence of Sod, Noh, Saltzman, LeBlanc and Sedov: L1 density errors and rates.
 
 Runs hydro_run on each deck family decks/convergence/<problem>_<n>.json
 (n cells along the flow) at each scheme order, and prints the L1 density
 error against the exact solution, sum_c |rho_c - rho(x_c)| V_c / A (A the
 fixed y-z cross-section, so V_c / A is the cell's length; rho at the cell's
-centroid), with the observed rate between successive resolutions. Checks
+centroid), with the observed rate between successive resolutions; for the
+radial problem (cylindrical Sedov, decks n x n x 1 on the quarter plane)
+sum_c |rho_c - rho(r_c)| V_c / L_z, per unit length of slab. Checks
 the v0.2 gate (roadmap.md): the second-order error below the first-order
 one at every resolution, and the v0.3 gate's LeBlanc shock-position bound
 on leblanc_layer (the heavy gas at the contact refined, Task 19c); the
-uniform leblanc family's shock is reported, not gated. Optionally plots error against resolution. Runs are independent
+uniform leblanc family's shock is reported, not gated, and Sedov's shock
+radius (the densest cell's) within 0.05 of 1, the symmetry spread
+reported. Optionally plots error against resolution. Runs are independent
 and go in parallel (--jobs). Run on demand, not from ctest; the ctest covers
 the cheaper families.
 
 The exact solutions are evaluated here, not interpolated from
 tests/oracle_data/ (sampled every 0.005, too coarse at 200 cells, and the
 Sod file marks no jumps): Sod and LeBlanc by an exact Riemann solver, planar
-Noh and the Saltzman piston in closed form. They agree with the oracle files
+Noh and the Saltzman piston in closed form. Sedov is the exception:
+ExactPack's profile in tests/oracle_data/sedov.json, every 0.001 with the
+shock as a jump. The others agree with the oracle files
 at their sample points (--check-oracles); for LeBlanc that compares this
 solver with ExactPack's, an independent evaluation.
 
 Usage:
-  python3 scripts/convergence.py [--problems sod noh saltzman leblanc leblanc_layer]
+  python3 scripts/convergence.py [--problems sod noh saltzman leblanc leblanc_layer sedov]
       [--sizes N ...] [--orders 1 2] [--jobs 8] [--plot convergence.png]
       [--markdown] [--hydro-run build/src/app/hydro_run] [--keep-dumps DIR]
       [--check-oracles]
 """
 import argparse
+import bisect
 import concurrent.futures
 import json
 import math
@@ -106,18 +113,56 @@ def leblanc_exact(x, t=6.0, gamma=5.0 / 3.0):
                      right=(1e-3, 0.0, (gamma - 1.0) * 1e-10), x0=3.0)
 
 
+def oracle_profile(name, field="density"):
+    """A radial profile from tests/oracle_data/<name>.json, linear between
+    samples except across its "jumps", where a point takes the sample on its
+    own side (as the ctest's exact_at). Beyond the last sample, the last."""
+    oracle = json.loads((REPO / "tests" / "oracle_data" / f"{name}.json").read_text())
+    xs, fs, jumps = oracle["x"], oracle[field], oracle.get("jumps", [])
+
+    def profile(r):
+        i = min(max(bisect.bisect_left(xs, r), 1), len(xs) - 1)
+        for jump in jumps:
+            if xs[i - 1] < jump <= xs[i]:
+                return fs[i - 1] if r < jump else fs[i]
+        w = min((r - xs[i - 1]) / (xs[i] - xs[i - 1]), 1.0)
+        return (1.0 - w) * fs[i - 1] + w * fs[i]
+    return profile
+
+
+_SEDOV = []
+
+
+def sedov_exact(r):
+    """Cylindrical Sedov at t = 1 (decisions.md): the ExactPack profile of
+    tests/oracle_data/sedov.json, sampled every 0.001 with the shock at
+    r = 1.0000005 as a jump. Interpolated, not solved here: ExactPack's
+    integrals are not worth repeating, and the samples are 10 per cell of
+    the 120 mesh."""
+    if not _SEDOV:
+        _SEDOV.append(oracle_profile("sedov"))
+    return _SEDOV[0](r)
+
+
 EXACT = {"sod": sod_exact, "noh": noh_exact, "saltzman": saltzman_exact,
-         "leblanc": leblanc_exact, "leblanc_layer": leblanc_exact}
+         "leblanc": leblanc_exact, "leblanc_layer": leblanc_exact, "sedov": sedov_exact}
+RADIAL = {"sedov"}
 # The rest: --sizes. leblanc_layer's n is the base mesh (cells 9/n away from
 # the layer [2.96, 3], which is refined x64).
-SIZES = {"leblanc": [225, 450, 900], "leblanc_layer": [225, 450, 900]}
-ORACLE = {"leblanc_layer": "leblanc"}
+SIZES = {"leblanc": [225, 450, 900], "leblanc_layer": [225, 450, 900],
+         "sedov": [30, 60, 120]}
+# Not compared with an oracle file by --check-oracles: leblanc_layer's is
+# leblanc's, sedov's exact solution is its oracle file.
+ORACLE = {"leblanc_layer": "leblanc", "sedov": "sedov"}
 
 # v0.3 gate (roadmap.md): LeBlanc's shock position within 0.1 of 7.975 at
 # the finest resolution, on the layered meshes (Task 19b/19c); reported for
 # the uniform ones.
 LEBLANC_SHOCK, LEBLANC_SHOCK_TOL = 7.974710, 0.1
 GATED_SHOCK = {"leblanc_layer"}
+# Sedov: the shock radius (of the densest cell) within 0.05 of 1 at the
+# finest resolution; the symmetry spread reported, not gated.
+SEDOV_SHOCK, SEDOV_SHOCK_TOL = 1.0, 0.05
 
 
 def check_oracles():
@@ -140,6 +185,38 @@ def l1_density_error(dump, exact):
     area = ((max(nodes["y"]) - min(nodes["y"])) * (max(nodes["z"]) - min(nodes["z"])))
     return sum(abs(r - exact(x)) * v / area for x, v, r in
                zip(cells["centroid_x"], cells["volume"], cells["density"]))
+
+
+def cell_radii(dump):
+    cells = dump["cells"]
+    return [math.hypot(x, y) for x, y in zip(cells["centroid_x"], cells["centroid_y"])]
+
+
+def radial_l1_density_error(dump, exact):
+    """sum_c |rho_c - rho(r_c)| V_c / L_z, r_c the radius of the centroid
+    (node average) in x-y, L_z the slab's thickness (decisions.md, "Error
+    metric")."""
+    cells = dump["cells"]
+    lz = max(dump["nodes"]["z"]) - min(dump["nodes"]["z"])
+    return sum(abs(r - exact(rc)) * v / lz for rc, v, r in
+               zip(cell_radii(dump), cells["volume"], cells["density"]))
+
+
+def densest_radius(dump):
+    """Radius of the densest cell (the v0.3 gate's Sedov shock radius)."""
+    rho = dump["cells"]["density"]
+    return cell_radii(dump)[max(range(len(rho)), key=rho.__getitem__)]
+
+
+def symmetry_spread(dump, width, behind):
+    """The largest spread (max - min) of cell density over the cells in one
+    radial bin [k width, (k + 1) width), over the bins wholly inside
+    r < behind (decisions.md, "Error metric")."""
+    bins = {}
+    for rc, r in zip(cell_radii(dump), dump["cells"]["density"]):
+        bins.setdefault(int(rc // width), []).append(r)
+    return max((max(v) - min(v) for k, v in bins.items() if (k + 1) * width <= behind),
+               default=0.0)
 
 
 def shock_position(dump, level=2.5e-3):
@@ -167,10 +244,14 @@ def run_one(hydro_run, problem, n, order, work):
     if proc.returncode != 0:
         return {"error": proc.stderr.strip() or proc.stdout.strip(), "time": elapsed}
     dump = json.loads(dump_path.read_text())
-    result = {"l1": l1_density_error(dump, EXACT[problem]), "steps": dump["steps"],
-              "time": elapsed}
+    l1 = radial_l1_density_error if problem in RADIAL else l1_density_error
+    result = {"l1": l1(dump, EXACT[problem]), "steps": dump["steps"], "time": elapsed}
     if problem.startswith("leblanc"):
         result["shock"] = shock_position(dump)
+    if problem == "sedov":
+        result["shock"] = densest_radius(dump)
+        result["spread"] = symmetry_spread(dump, 1.2 / n, result["shock"])
+        result["peak"] = max(dump["cells"]["density"])
     return result
 
 
@@ -224,7 +305,8 @@ def main():
     parser.add_argument("--problems", nargs="+", choices=list(EXACT),
                         default=list(EXACT))
     parser.add_argument("--sizes", type=int, nargs="+", default=None,
-                        help="cells along the flow (default 50 100 200, LeBlanc 225 450 900)")
+                        help="cells along the flow (default 50 100 200, LeBlanc 225 450 900, "
+                             "Sedov 30 60 120)")
     parser.add_argument("--orders", type=int, nargs="+", choices=[1, 2], default=[1, 2])
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("--hydro-run", type=pathlib.Path,
@@ -277,6 +359,8 @@ def main():
                 if prev and "l1" in prev:
                     rate = f"{math.log(prev['l1'] / r['l1']) / math.log(n / sizes[problem][i - 1]):.2f}"
                 extra = f", shock {r['shock']:.4f}" if "shock" in r else ""
+                if "spread" in r:
+                    extra += f", peak rho {r['peak']:.3f}, spread {r['spread']:.3f}"
                 cols.append((f"{r['l1']:.3e}", rate,
                              f"{r['steps']} steps {r['time']:.1f} s{extra}"))
             if args.markdown:
@@ -300,8 +384,16 @@ def main():
                     print(f"  {'gate' if gated else 'reported, not gated'}: {problem} at "
                           f"{finest}, order {o}: shock at {shock}, not within "
                           f"{LEBLANC_SHOCK_TOL} of {LEBLANC_SHOCK}")
+        if problem == "sedov":
+            finest = sizes[problem][-1]
+            for o in args.orders:
+                shock = results[(problem, finest, o)].get("shock")
+                if shock is None or abs(shock - SEDOV_SHOCK) > SEDOV_SHOCK_TOL:
+                    gate_ok = False
+                    print(f"  gate: sedov at {finest}, order {o}: shock at {shock}, not "
+                          f"within {SEDOV_SHOCK_TOL} of {SEDOV_SHOCK}")
     if 1 in args.orders and 2 in args.orders:
-        print("gate (order 2 below order 1 everywhere, LeBlanc layer shock bound):",
+        print("gate (order 2 below order 1 everywhere, LeBlanc layer and Sedov shock bounds):",
               "PASS" if gate_ok else "FAIL")
     if args.plot:
         plot(results, args.problems, sizes, args.orders, args.plot)

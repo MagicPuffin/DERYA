@@ -232,6 +232,72 @@ below the cold gas's 1e-7, flow 1D (|v_y| < 2e-15).
 
 ![LeBlanc profiles, refined layer](figures/profiles_leblanc_layer_900.png)
 
+## Sedov, cylindrical (Task 22)
+`decks/convergence/sedov_<n>.json`: the quarter plane [0, 1.2]^2, n x n
+x 1 cubic cells (slab 1.2/n), walls on all sides, gamma = 1.4, rho = 1,
+P = 1e-6 at rest, `initial.energy_spike` 0.246019 per unit length at the
+origin (the corner cell). Exact: ExactPack `Sedov(geometry=2, eblast = 4 x
+0.246019)` in `tests/oracle_data/sedov.json` (every 0.001 on r in [0, 1.7],
+shock at r = 1.0000005, rho 6 behind it). Metric: radial L1 per unit
+length at the centroid radius; shock = the densest cell's radius; spread =
+the largest max - min of density in a radial bin one cell wide, over the
+bins behind the shock.
+
+**Order 1** (`convergence.py --problems sedov --orders 1`):
+
+| n | Order 1 L1 | rate | shock | peak rho | spread | steps | time |
+|---|---|---|---|---|---|---|---|
+| 30 | 1.664e-01 | | 0.968 | 5.01 | 2.11 | 508 | 7 s |
+| 60 | 1.161e-01 | 0.52 | 0.981 | 5.45 | 1.91 | 1601 | 3.2 min* |
+| 120 | 5.227e-02 | 1.15 | 0.992 | 5.70 | 0.91 | 5185 | 32 min* |
+
+(* with 2-3 other runs on 4 cores.) Total energy conserved to round-off
+(0.2460225960 per unit length: the spike plus the background's 3.6e-6),
+v_z below 4e-16, mirror symmetry about the diagonal to 7e-14, the gas
+ahead untouched. The shock is within 0.05 of 1 at every resolution. The
+spread mixes in the steep radial gradient across a bin next to the shock,
+so it is large near the shock by construction; it falls with resolution.
+The steps grow ~3.2x per doubling, not 2x: dt is set by the hot cells at
+the origin. **Cost**: the 120 run is above the ~15 min budget at order 1,
+and order 2 (~4x per step) would be about an hour.
+
+![Sedov profiles, order 1](figures/profiles_sedov_120.png)
+
+(ExactPack's eps has a kink at r ~ 0.19, inside the near-vacuum core
+where no cell is at t = 1; not used by the metric.) Georges' thesis
+Figs. 3.13-3.15 are the *spherical* Sedov on 20^3 cells, not this
+problem, so they are not overlaid.
+
+### Order 2 with SP-V fails (the finding)
+Order 2 with SP-V stops with a negative internal energy in a cold cell
+just ahead of the shock: step 85 at n = 30 (t = 0.086, cell 156 at r =
+0.34, near the diagonal), step 86 at 60, step 101 at 120. CFL 0.1 does
+not help (step 150, same cell). With `"limiter": "none"` order 2 runs to
+t = 1 at n = 30 (L1 0.156, shock 0.992).
+
+Cause (probed with `--probe 156`): ahead of the shock the cell carries a
+precursor velocity of ~1e-7 (2e-7 of its neighbours' 0.4), pointing
+almost tangentially (V_c ~ (-0.73, 0.68) at (0.26, 0.22)). SP-V limits the
+velocity gradient only through its projection on u_c = V_c / |V_c|
+(`decisions.md`, "Limiter: SP-V"), and the 1e-8 "negligible speed"
+threshold of Task 13 (tuned on Sod's 1e-17 round-off) lets this vector
+through. The incoming radial gradient is then nearly unlimited in the
+cell; its corner velocities overshoot and the kinetic energy exceeds the
+cell's total energy as the shock arrives.
+
+Check (throwaway build, not committed): with the threshold at 1e-2 (that
+cell falls back to the pressure-gradient direction, radial), order 2
+runs to t = 1:
+
+| n | Order 2 L1 (threshold 1e-2) | shock | peak rho | spread |
+|---|---|---|---|---|
+| 30 | 1.101e-01 | 0.981 | 5.65 | 1.51 |
+| 60 | 4.842e-02 | 0.991 | 6.01 | 1.34 |
+
+below order 1 at both (0.166, 0.116). Not adopted: it changes the scheme
+(and possibly the v0.2 dumps), so it is a decision for its own task, as
+the Task 16 plan says for an SP-V failure on Sedov (`backlog.md`, Task 22).
+
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every
   test at ≥3 resolutions, assert observed order matches formal order, not

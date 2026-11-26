@@ -43,6 +43,17 @@ struct TaylorGreen {
   double c2 = 1.0;
 };
 
+// Point blast (Sedov): energy_per_length times the slab's z thickness
+// (mesh.max[2] - mesh.min[2]) goes, as internal energy, into the cells with a
+// node at `at` (to 1e-12 of the box size), split by mass (so they share one
+// eps), replacing their
+// background internal energy. The rest of the state is the background's and
+// the regions'.
+struct EnergySpike {
+  Vec3 at = {0.0, 0.0, 0.0};
+  double energy_per_length = 0.0;
+};
+
 // Prescribed energy source. TaylorGreen: thesis Eq. 3.6, with the constants
 // of the deck's Taylor-Green profile, which keeps that profile stationary.
 enum class EnergySourceType { None, TaylorGreen };
@@ -66,6 +77,8 @@ struct Deck {
   std::vector<Region> regions;
   // Set: the initial state is this profile (no background, no regions).
   std::optional<TaylorGreen> taylor_green;
+  // Set: a point blast on top of the background and regions.
+  std::optional<EnergySpike> energy_spike;
   EnergySourceType source = EnergySourceType::None;
   double t_end = 0.0;
   // dt^0 = min(dt_initial, CFL); infinity means CFL alone.

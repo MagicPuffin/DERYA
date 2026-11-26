@@ -257,12 +257,23 @@ void parse_taylor_green(const json& j, Deck& deck) {
   deck.taylor_green = tg;
 }
 
+void parse_energy_spike(const json& j, Deck& deck) {
+  const std::string path = "initial.energy_spike";
+  object(j, path, {"at", "energy_per_length"});
+  EnergySpike spike;
+  spike.at = vec3(required(j, path, "at"), path + ".at");
+  spike.energy_per_length =
+      number(required(j, path, "energy_per_length"), path + ".energy_per_length");
+  if (!(spike.energy_per_length > 0.0)) fail(path + ".energy_per_length", "must be > 0");
+  deck.energy_spike = spike;
+}
+
 void parse_initial(const json& j, Deck& deck) {
   const std::string path = "initial";
-  object(j, path, {"background", "regions", "taylor_green"});
+  object(j, path, {"background", "regions", "taylor_green", "energy_spike"});
   if (j.contains("taylor_green")) {
-    if (j.contains("background") || j.contains("regions")) {
-      fail(path + ".taylor_green", "excludes background and regions");
+    if (j.contains("background") || j.contains("regions") || j.contains("energy_spike")) {
+      fail(path + ".taylor_green", "excludes background, regions and energy_spike");
     }
     parse_taylor_green(j.at("taylor_green"), deck);
     return;
@@ -271,6 +282,7 @@ void parse_initial(const json& j, Deck& deck) {
   const json& bg = required(j, path, "background");
   object(bg, bg_path, {"density", "velocity", "pressure"});
   deck.background = parse_state(bg, bg_path);
+  if (j.contains("energy_spike")) parse_energy_spike(j.at("energy_spike"), deck);
   if (!j.contains("regions")) return;
   const json& regions = j.at("regions");
   if (!regions.is_array()) fail(path + ".regions", "expected an array");

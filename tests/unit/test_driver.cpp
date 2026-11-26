@@ -4,6 +4,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -534,7 +536,7 @@ TEST_CASE("parse_deck: the Taylor-Green profile and source", "[io]") {
   check_rejected(j, "initial.taylor_green.c3: unknown key");
   j["initial"] = tg_initial;
   j["initial"]["background"] = {{"density", 1.0}, {"pressure", 1.0}};
-  check_rejected(j, "initial.taylor_green: excludes background and regions");
+  check_rejected(j, "initial.taylor_green: excludes background, regions and energy_spike");
   j = small_deck();
   j["source"] = "taylor_green";
   check_rejected(j, "source: \"taylor_green\" needs initial.taylor_green");
@@ -596,6 +598,97 @@ TEST_CASE("initial_state: the Taylor-Green profile at the cell centroids", "[app
     CHECK(s.vel_z[c] == 0.0);
     CHECK_THAT(s.total_energy[c], WithinRel(p / 0.4 + 0.5 * (v[0] * v[0] + v[1] * v[1]), 1e-14));
   }
+}
+
+namespace {
+
+// A 4x4x1 quarter plane [0, 1]^2 x [0, 0.25], walls everywhere, cold gas
+// at rest with an energy spike at the origin (a small Sedov deck).
+json spike_deck() {
+  return json::parse(R"({
+    "mesh": {"cells": [4, 4, 1], "min": [0, 0, 0], "max": [1, 1, 0.25]},
+    "eos": {"type": "ideal_gas", "gamma": 1.4},
+    "boundaries": {"x_min": "symmetry", "x_max": "symmetry", "y_min": "symmetry",
+                   "y_max": "symmetry", "z_min": "symmetry", "z_max": "symmetry"},
+    "initial": {
+      "background": {"density": 2, "pressure": 1e-6},
+      "energy_spike": {"at": [0, 0, 0], "energy_per_length": 0.5}
+    },
+    "time": {"t_end": 0.1}
+  })");
+}
+
+}  // namespace
+
+TEST_CASE("parse_deck: the energy spike", "[io]") {
+  CHECK(!parse_deck(small_deck().dump()).energy_spike);
+  json j = spike_deck();
+  const Deck d = parse_deck(j.dump());
+  REQUIRE(d.energy_spike);
+  CHECK(d.energy_spike->at == hydro::io::Vec3{0.0, 0.0, 0.0});
+  CHECK(d.energy_spike->energy_per_length == 0.5);
+  CHECK(d.background.density == 2.0);
+
+  j["initial"]["energy_spike"]["energy_per_length"] = 0.0;
+  check_rejected(j, "initial.energy_spike.energy_per_length: must be > 0");
+  j = spike_deck();
+  j["initial"]["energy_spike"].erase("at");
+  check_rejected(j, "initial.energy_spike.at: missing");
+  j = spike_deck();
+  j["initial"]["energy_spike"]["energy"] = 1.0;
+  check_rejected(j, "initial.energy_spike.energy: unknown key");
+  j = spike_deck();
+  j["initial"]["energy_spike"]["at"] = {0, 0};
+  check_rejected(j, "initial.energy_spike.at: expected an array of 3 numbers");
+  j = spike_deck();
+  j["initial"] = {{"taylor_green", json::object()},
+                  {"energy_spike", spike_deck()["initial"]["energy_spike"]}};
+  check_rejected(j, "initial.taylor_green: excludes background, regions and energy_spike");
+}
+
+TEST_CASE("initial_state: the energy spike goes into the cells at its point", "[app]") {
+  using hydro::eos::IdealGasEOS;
+  const double cell_mass = 2.0 * 0.25 * 0.25 * 0.25;  // rho = 2, cubic cells of 0.25
+  const double eps_background = 1e-6 / (0.4 * 2.0);
+  auto total = [](const HydroState& s) {
+    double e = 0.0;
+    for (Index c = 0; c < s.mesh.num_cells(); ++c) e += s.mass[c] * s.total_energy[c];
+    return e;
+  };
+
+  // At the origin: only the corner cell 0, which holds E L_z = 0.5 x 0.25
+  // as internal energy (its background eps replaced), the rest untouched.
+  const HydroState s = hydro::app::initial_state(parse_deck(spike_deck().dump()));
+  REQUIRE(s.mesh.num_cells() == 16);
+  CHECK_THAT(s.mass[0] * s.total_energy[0], WithinRel(0.125, 1e-14));
+  for (Index c = 1; c < 16; ++c) {
+    INFO("cell " << c);
+    CHECK_THAT(s.total_energy[c], WithinRel(eps_background, 1e-14));
+  }
+  CHECK_THAT(total(s), WithinRel(0.125 + 15 * cell_mass * eps_background, 1e-14));
+  const auto thermo = hydro::lagrangian::cell_thermo(
+      s, hydro::lagrangian::cell_face_vectors(s.mesh), IdealGasEOS(1.4));
+  CHECK_THAT(thermo.pressure[0], WithinRel(0.4 * 0.125 / (0.25 * 0.25 * 0.25), 1e-13));
+
+  // At an interior node: the four cells around it, split by mass (one eps),
+  // on a thicker slab (E is per unit length: L_z = 0.5 doubles it). Cells
+  // 5, 6, 9, 10 share the node (0.5, 0.5, 0).
+  json j = spike_deck();
+  j["mesh"]["max"] = {1, 1, 0.5};
+  j["initial"]["energy_spike"]["at"] = {0.5, 0.5, 0};
+  const HydroState t = hydro::app::initial_state(parse_deck(j.dump()));
+  for (Index c = 0; c < 16; ++c) {
+    INFO("cell " << c);
+    const bool spiked = c == 5 || c == 6 || c == 9 || c == 10;
+    const double eps = spiked ? 0.5 * 0.5 / (4 * 2.0 * cell_mass) : eps_background;
+    CHECK_THAT(t.total_energy[c], WithinRel(eps, 1e-14));
+  }
+
+  // At a point no node is at.
+  j = spike_deck();
+  j["initial"]["energy_spike"]["at"] = {0.1, 0, 0};
+  CHECK_THROWS_WITH(hydro::app::initial_state(parse_deck(j.dump())),
+                    ContainsSubstring("no cell has a node at the energy spike's point"));
 }
 
 TEST_CASE("thin_slab_warnings: a thin extrusion warns, cubic cells do not", "[io]") {
@@ -1082,6 +1175,75 @@ TEST_CASE("v0.3 gate: LeBlanc with a refined layer, 225 base", "[app][integratio
   // 3.84e-3 and 4.08e-3, L1 7.23e-2 and 1.27e-2; about 9 s and 35 s.
   check_leblanc("convergence/leblanc_layer_225", 288, 0.04 * 0.04, {8.026, 7.996},
                 {3.84e-3, 4.08e-3});
+}
+
+TEST_CASE("hydro_run: cylindrical Sedov at order 1, 30x30", "[app][integration]") {
+  // decks/convergence/sedov_30.json: the quarter plane [0, 1.2]^2 x [0, 0.04],
+  // walls everywhere, rho = 1 and P = 1e-6 at rest, 0.246019 per unit length
+  // at the origin; tests/oracle_data/sedov.json (ExactPack) has the shock at
+  // r = 1, rho = 6 behind it, at t = 1. Order 1 only: order 2 with SP-V
+  // fails at step 85 (negative eps in a cell just ahead of the shock;
+  // vv_catalog.md, "Sedov"). Measured: shock (the densest cell) at r =
+  // 0.9677, peak rho 5.007, radial L1 0.1664; about 7 s.
+  const json oracle = read_oracle("sedov");
+  REQUIRE(oracle["t"].get<double>() == 1.0);
+  const json dump =
+      run_hydro_deck(std::string(DECK_DIR) + "/convergence/sedov_30.json", "sedov_30");
+  CHECK(dump["t"].get<double>() == 1.0);
+  const auto& cells = dump["cells"];
+  const auto x = cells["centroid_x"].get<std::vector<double>>();
+  const auto y = cells["centroid_y"].get<std::vector<double>>();
+  const auto mass = cells["mass"].get<std::vector<double>>();
+  const auto volume = cells["volume"].get<std::vector<double>>();
+  const auto rho = cells["density"].get<std::vector<double>>();
+  const auto vx = cells["velocity_x"].get<std::vector<double>>();
+  const auto vy = cells["velocity_y"].get<std::vector<double>>();
+  const auto vz = cells["velocity_z"].get<std::vector<double>>();
+  const auto eps = cells["internal_energy"].get<std::vector<double>>();
+  const std::size_t n = 30;
+  REQUIRE(rho.size() == n * n);
+  const double lz = 0.04;
+
+  // Walls do no work: per unit length, mass 1.2^2 and total energy the
+  // spike's plus the background's in the other cells, to round-off.
+  double m = 0.0, e = 0.0;
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    m += mass[c];
+    e += mass[c] * (eps[c] + 0.5 * (vx[c] * vx[c] + vy[c] * vy[c] + vz[c] * vz[c]));
+    CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+  }
+  CHECK_THAT(m / lz, WithinRel(1.44, 1e-12));
+  CHECK_THAT(e / lz, WithinRel(0.246019 + (1.44 - 0.04 * 0.04) * 1e-6 / 0.4, 1e-12));
+
+  // Mirror symmetry about the diagonal: cell (i, j) against (j, i).
+  double mirror = 0.0;
+  for (std::size_t j = 0; j < n; ++j) {
+    for (std::size_t i = 0; i < n; ++i) {
+      mirror = std::max(mirror, std::abs(rho[j * n + i] - rho[i * n + j]));
+    }
+  }
+  CHECK(mirror < 1e-10);
+
+  // Shock radius (the densest cell's, as the v0.3 gate), peak density and
+  // the radial L1 per unit length; the gas ahead untouched.
+  std::size_t densest = 0;
+  double l1 = 0.0;
+  for (std::size_t c = 0; c < rho.size(); ++c) {
+    if (rho[c] > rho[densest]) densest = c;
+    const double r = std::hypot(x[c], y[c]);
+    l1 += std::abs(rho[c] - exact_at(oracle, oracle["density"].get<std::vector<double>>(), r)) *
+          volume[c] / lz;
+    if (r > 1.15) {
+      INFO("cell " << c << " at r = " << r);
+      CHECK_THAT(rho[c], WithinAbs(1.0, 1e-6));
+    }
+  }
+  const double shock = std::hypot(x[densest], y[densest]);
+  INFO("shock at " << shock << ", peak rho " << rho[densest] << ", L1 " << l1);
+  CHECK_THAT(shock, WithinAbs(1.0, 0.05));
+  CHECK_THAT(shock, WithinAbs(0.9677, 0.005));
+  CHECK_THAT(rho[densest], WithinRel(5.007, 0.02));
+  CHECK_THAT(l1, WithinRel(0.1664, 0.02));
 }
 
 namespace {
