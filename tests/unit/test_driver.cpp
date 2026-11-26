@@ -1177,73 +1177,90 @@ TEST_CASE("v0.3 gate: LeBlanc with a refined layer, 225 base", "[app][integratio
                 {3.84e-3, 4.08e-3});
 }
 
-TEST_CASE("hydro_run: cylindrical Sedov at order 1, 30x30", "[app][integration]") {
+TEST_CASE("hydro_run: cylindrical Sedov at both orders, 30x30", "[app][integration]") {
   // decks/convergence/sedov_30.json: the quarter plane [0, 1.2]^2 x [0, 0.04],
   // walls everywhere, rho = 1 and P = 1e-6 at rest, 0.246019 per unit length
   // at the origin; tests/oracle_data/sedov.json (ExactPack) has the shock at
-  // r = 1, rho = 6 behind it, at t = 1. Order 1 only: order 2 with SP-V
-  // fails at step 85 (negative eps in a cell just ahead of the shock;
-  // vv_catalog.md, "Sedov"). Measured: shock (the densest cell) at r =
-  // 0.9677, peak rho 5.007, radial L1 0.1664; about 7 s.
+  // r = 1, rho = 6 behind it, at t = 1. Order 2 failed at step 85 (negative
+  // eps just ahead of the shock) before the SP-V near-rest rule of Task 22b
+  // (limiter.hpp; vv_catalog.md, "Sedov"). Measured, shock (the densest
+  // cell) / peak rho / radial L1: order 1 0.9677 / 5.007 / 0.1664 (about
+  // 7 s), order 2 0.9807 / 5.650 / 0.1043 (about 40 s).
   const json oracle = read_oracle("sedov");
   REQUIRE(oracle["t"].get<double>() == 1.0);
-  const json dump =
-      run_hydro_deck(std::string(DECK_DIR) + "/convergence/sedov_30.json", "sedov_30");
-  CHECK(dump["t"].get<double>() == 1.0);
-  const auto& cells = dump["cells"];
-  const auto x = cells["centroid_x"].get<std::vector<double>>();
-  const auto y = cells["centroid_y"].get<std::vector<double>>();
-  const auto mass = cells["mass"].get<std::vector<double>>();
-  const auto volume = cells["volume"].get<std::vector<double>>();
-  const auto rho = cells["density"].get<std::vector<double>>();
-  const auto vx = cells["velocity_x"].get<std::vector<double>>();
-  const auto vy = cells["velocity_y"].get<std::vector<double>>();
-  const auto vz = cells["velocity_z"].get<std::vector<double>>();
-  const auto eps = cells["internal_energy"].get<std::vector<double>>();
-  const std::size_t n = 30;
-  REQUIRE(rho.size() == n * n);
-  const double lz = 0.04;
-
-  // Walls do no work: per unit length, mass 1.2^2 and total energy the
-  // spike's plus the background's in the other cells, to round-off.
-  double m = 0.0, e = 0.0;
-  for (std::size_t c = 0; c < rho.size(); ++c) {
-    m += mass[c];
-    e += mass[c] * (eps[c] + 0.5 * (vx[c] * vx[c] + vy[c] * vy[c] + vz[c] * vz[c]));
-    CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
-  }
-  CHECK_THAT(m / lz, WithinRel(1.44, 1e-12));
-  CHECK_THAT(e / lz, WithinRel(0.246019 + (1.44 - 0.04 * 0.04) * 1e-6 / 0.4, 1e-12));
-
-  // Mirror symmetry about the diagonal: cell (i, j) against (j, i).
-  double mirror = 0.0;
-  for (std::size_t j = 0; j < n; ++j) {
-    for (std::size_t i = 0; i < n; ++i) {
-      mirror = std::max(mirror, std::abs(rho[j * n + i] - rho[i * n + j]));
+  const std::array<double, 2> want_shock = {0.9677, 0.9807};
+  const std::array<double, 2> want_peak = {5.007, 5.650};
+  const std::array<double, 2> want_l1 = {0.1664, 0.1043};
+  std::array<double, 2> l1{};
+  for (const int order : {1, 2}) {
+    INFO("order " << order);
+    json deck = read_deck_json("convergence/sedov_30");
+    deck["scheme"] = {{"order", order}};
+    const std::string name = "sedov_30_order" + std::to_string(order);
+    const auto deck_path = (std::filesystem::temp_directory_path() / (name + ".json")).string();
+    {
+      std::ofstream out(deck_path);
+      out << deck.dump();
     }
-  }
-  CHECK(mirror < 1e-10);
+    const json dump = run_hydro_deck(deck_path, name);
+    std::filesystem::remove(deck_path);
+    CHECK(dump["t"].get<double>() == 1.0);
+    const auto& cells = dump["cells"];
+    const auto x = cells["centroid_x"].get<std::vector<double>>();
+    const auto y = cells["centroid_y"].get<std::vector<double>>();
+    const auto mass = cells["mass"].get<std::vector<double>>();
+    const auto volume = cells["volume"].get<std::vector<double>>();
+    const auto rho = cells["density"].get<std::vector<double>>();
+    const auto vx = cells["velocity_x"].get<std::vector<double>>();
+    const auto vy = cells["velocity_y"].get<std::vector<double>>();
+    const auto vz = cells["velocity_z"].get<std::vector<double>>();
+    const auto eps = cells["internal_energy"].get<std::vector<double>>();
+    const std::size_t n = 30;
+    REQUIRE(rho.size() == n * n);
+    const double lz = 0.04;
 
-  // Shock radius (the densest cell's, as the v0.3 gate), peak density and
-  // the radial L1 per unit length; the gas ahead untouched.
-  std::size_t densest = 0;
-  double l1 = 0.0;
-  for (std::size_t c = 0; c < rho.size(); ++c) {
-    if (rho[c] > rho[densest]) densest = c;
-    const double r = std::hypot(x[c], y[c]);
-    l1 += std::abs(rho[c] - exact_at(oracle, oracle["density"].get<std::vector<double>>(), r)) *
+    // Walls do no work: per unit length, mass 1.2^2 and total energy the
+    // spike's plus the background's in the other cells, to round-off.
+    double m = 0.0, e = 0.0;
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      m += mass[c];
+      e += mass[c] * (eps[c] + 0.5 * (vx[c] * vx[c] + vy[c] * vy[c] + vz[c] * vz[c]));
+      CHECK_THAT(vz[c], WithinAbs(0.0, 1e-12));
+    }
+    CHECK_THAT(m / lz, WithinRel(1.44, 1e-12));
+    CHECK_THAT(e / lz, WithinRel(0.246019 + (1.44 - 0.04 * 0.04) * 1e-6 / 0.4, 1e-12));
+
+    // Mirror symmetry about the diagonal: cell (i, j) against (j, i).
+    double mirror = 0.0;
+    for (std::size_t j = 0; j < n; ++j) {
+      for (std::size_t i = 0; i < n; ++i) {
+        mirror = std::max(mirror, std::abs(rho[j * n + i] - rho[i * n + j]));
+      }
+    }
+    CHECK(mirror < 1e-10);
+
+    // Shock radius (the densest cell's, as the v0.3 gate), peak density and
+    // the radial L1 per unit length; the gas ahead untouched.
+    std::size_t densest = 0;
+    for (std::size_t c = 0; c < rho.size(); ++c) {
+      if (rho[c] > rho[densest]) densest = c;
+      const double r = std::hypot(x[c], y[c]);
+      l1[order - 1] +=
+          std::abs(rho[c] - exact_at(oracle, oracle["density"].get<std::vector<double>>(), r)) *
           volume[c] / lz;
-    if (r > 1.15) {
-      INFO("cell " << c << " at r = " << r);
-      CHECK_THAT(rho[c], WithinAbs(1.0, 1e-6));
+      if (r > 1.15) {
+        INFO("cell " << c << " at r = " << r);
+        CHECK_THAT(rho[c], WithinAbs(1.0, 1e-6));
+      }
     }
+    const double shock = std::hypot(x[densest], y[densest]);
+    INFO("shock at " << shock << ", peak rho " << rho[densest] << ", L1 " << l1[order - 1]);
+    CHECK_THAT(shock, WithinAbs(1.0, 0.05));
+    CHECK_THAT(shock, WithinAbs(want_shock[order - 1], 0.005));
+    CHECK_THAT(rho[densest], WithinRel(want_peak[order - 1], 0.02));
+    CHECK_THAT(l1[order - 1], WithinRel(want_l1[order - 1], 0.02));
   }
-  const double shock = std::hypot(x[densest], y[densest]);
-  INFO("shock at " << shock << ", peak rho " << rho[densest] << ", L1 " << l1);
-  CHECK_THAT(shock, WithinAbs(1.0, 0.05));
-  CHECK_THAT(shock, WithinAbs(0.9677, 0.005));
-  CHECK_THAT(rho[densest], WithinRel(5.007, 0.02));
-  CHECK_THAT(l1, WithinRel(0.1664, 0.02));
+  CHECK(l1[1] < l1[0]);
 }
 
 namespace {

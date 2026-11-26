@@ -186,7 +186,8 @@ puts the shock where hydro_run does to 2e-4 at 225, 450 and 900 cells):
   initial value and the shock within 0.007.
 - *Not the solver's approximation:* the exact Riemann solver at every
   interface (Lagrangian Godunov, `--solver exact`) is worse, +0.84 at 450
-  cells and +0.60 at 1800. Not the timestep either (CFL 0.1: 0.01).
+  cells and +0.60 at 1800, and converges the same way (+0.42, +0.26,
+  +0.15 at 3600, 7200, 14400). Not the timestep either (CFL 0.1: 0.01).
 - *Literature:* the same loss of shock-speed accuracy, blamed on the
   internal-energy overshoot at the contact, a start-up error of the
   wall-heating kind, is reported for Eulerian schemes too, which need

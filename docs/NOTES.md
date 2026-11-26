@@ -105,8 +105,9 @@ the meshes hydro_run cannot afford. Full table and reasoning in
   isentropic P / rho^gamma (next cells 2.4x, 1.6x). At 900 cells those
   cells are the whole plateau and hold the contact at 6.2e-4 instead of
   p* = 5.16e-4.
-- The exact Riemann solver (Lagrangian Godunov) is worse (+0.84 at 450),
-  so the two-shock approximation is not the cause; CFL 0.1 moves the shock
+- The exact Riemann solver (Lagrangian Godunov) is worse (+0.84 at 450)
+  and converges the same way (+0.15 at 14400), so the two-shock
+  approximation is not the cause; CFL 0.1 moves the shock
   by 0.01.
 - Literature: shock-speed errors from the contact's start-up error on
   LeBlanc are known for Eulerian schemes too (Ramani, Reisner, Shkoller,

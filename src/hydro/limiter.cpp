@@ -61,11 +61,15 @@ double dot(const Vec3& a, const Vec3& b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-// |V_c| below this fraction of the largest |V_c'| over C(P(c)) counts as
-// V_c = 0 in velocity_limiters. Measured on Sod at second order (100x2x2):
-// 1e-12 left the columns 2e-9 apart in density, 1e-10 1e-11 apart, 1e-8 at
-// round-off (1e-14); round-off in V_c accumulates over the steps.
-constexpr double kNegligibleSpeed = 1e-8;
+// |V_c| at or below this fraction of the largest |V_c'| over C(P(c)) counts
+// as V_c = 0 in velocity_limiters (decisions.md, "Limiter: SP-V"). Such a
+// V_c is whatever reached the cell first, round-off (Sod, 1e-17) or the
+// precursor of an arriving wave (Sedov, 2e-7, tangential), not the flow
+// whose gradient is to be limited. Task 13 had 1e-8, enough for round-off
+// only; Sedov at order 2 then fails, as at 1e-6. On Sedov at 30x30 every
+// value from 1e-4 to 1e-1 runs and gives the same L1 to 3e-4; 1e-2 is
+// inside that band, not at its edge.
+constexpr double kNegligibleSpeed = 1e-2;
 
 // a / |a|, or the zero vector for a = 0.
 Vec3 unit(const Vec3& a) {
@@ -109,9 +113,9 @@ std::vector<double> velocity_limiters(const mesh::Mesh& m,
   std::vector<double> extrapolated(kNodesPerCell);
   for (Index c = 0; c < m.num_cells(); ++c) {
     const Vec3 Vc = {vel_x[c], vel_y[c], vel_z[c]};
-    // V_c below round-off of the surrounding speeds has no meaningful
-    // direction: mirror cells of a 1D flow would project on different
-    // round-off vectors and get different factors.
+    // V_c small against the surrounding speeds has no meaningful direction:
+    // mirror cells of a 1D flow would project on different round-off
+    // vectors, and a tangential precursor hides the incoming gradient.
     double speed = 0.0;
     for (const Index d : nbr[c]) {
       speed = std::max(speed, std::sqrt(vel_x[d] * vel_x[d] + vel_y[d] * vel_y[d] +

@@ -203,6 +203,16 @@ TEST_CASE("velocity_limiters: projection direction and the V_c = 0 fallback",
     CHECK_THAT(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4],
                WithinAbs(2.0 / 3.0, 1e-14));
   }
+  SECTION("V_c near rest, tangential to the gradient: along the pressure gradient") {
+    // Sedov's precursor (Task 22): a cell ahead of the shock carries ~2e-7 of
+    // its neighbours' speed, pointing across the incoming velocity gradient.
+    // Projected on it the gradient has no component (factor 1, unlimited);
+    // the cell counts as at rest and is limited along the pressure gradient.
+    vx[4] = 2e-8;
+    grad_p[4] = {0.0, 1.0, 0.0};
+    CHECK_THAT(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4],
+               WithinAbs(2.0 / 3.0, 1e-14));
+  }
   SECTION("V_c = 0 and no pressure gradient: along e_x, nothing to limit") {
     CHECK(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4] == 1.0);
   }
@@ -210,12 +220,17 @@ TEST_CASE("velocity_limiters: projection direction and the V_c = 0 fallback",
     for (Index c = 0; c < 9; ++c) vx[c] = 1.0;
     grad_p[4] = {0.0, 1.0, 0.0};
     CHECK(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4] == 1.0);
-    // Turned towards y (V_c = 1e-3 e_y), the overshoot shows: the binding
-    // node is the top one, room 0.1 - 1e-3 against an extrapolation of 0.15.
+    // Turned towards y (V_c = 2e-3 e_y, above 1e-2 of the neighbours' 0.1),
+    // the overshoot shows: the binding node is the top one, room 0.1 - 2e-3
+    // against an extrapolation of 0.15.
     for (Index c = 0; c < 9; ++c) vx[c] = 0.0;
-    vy[4] = 1e-3;
+    vy[4] = 2e-3;
     grad_p[4] = {1.0, 0.0, 0.0};
     CHECK_THAT(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4],
-               WithinAbs((0.1 - 1e-3) / 0.15, 1e-14));
+               WithinAbs((0.1 - 2e-3) / 0.15, 1e-14));
+    // Below 1e-2 of the neighbours' speed (V_c = 5e-4 e_y) it counts as at
+    // rest: along the pressure gradient, e_x here, where nothing is limited.
+    vy[4] = 5e-4;
+    CHECK(velocity_limiters(m, vx, vy, vz, grad_v, grad_p)[4] == 1.0);
   }
 }

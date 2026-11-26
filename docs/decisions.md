@@ -146,6 +146,27 @@ stop and report rather than deciding to override it.
     1e-4 apart (v_y 2e-4); 1e-12 left 2e-9, 1e-8 leaves round-off. The
     pressure-gradient fallback has the same exact-zero test; no run has
     needed a tolerance there yet.
+    Changed again in Task 22b, **to 1e-2** (`|V_c| <= 1e-2 max |V_c'|`).
+    On cylindrical Sedov a cold cell ahead of the shock carries a
+    precursor velocity ~2e-7 of its neighbours', pointing across the
+    incoming radial gradient; projected on it, that gradient is not
+    limited, and order 2 failed (negative eps at step 85 at n = 30;
+    `vv_catalog.md`, "Sedov"). A V_c that small is whatever reached the
+    cell first, not the flow being limited, so the threshold separates
+    "at rest" from "moving with the flow", not round-off from signal. How
+    it was picked (Sedov at 30, order 2, the same build with the threshold
+    read at run time): 1e-8 and 1e-6 fail; 1e-5 ... (see below); every value from 1e-4 to 1e-1
+    runs to t = 1 with the same L1 (1.043e-1 to 4 digits; densities within
+    3e-4 of the 1e-2 run's) and 3e-1 with 1.0432e-1. Near-rest cells
+    at a wave front are moving along the pressure gradient anyway, so the
+    fallback barely changes them; the result is flat over three decades,
+    and 1e-2 sits inside that band, not at its edge. Effect on the v0.2
+    order-2 dumps: ... (see below).
+    Rejected: the direction from the pressure gradient whenever |V_c| is
+    small against the velocity jump across the cell (|grad V| h): a
+    second, mesh-dependent scale for the same idea, and it would switch
+    in smooth flows (Taylor-Green's stagnation corners) where V_c's
+    direction is meaningful.
   - *Time integration: predictor-corrector* (thesis Sec. 2.6.1, Eqs.
     2.42-2.49, alpha = 1): an Euler predictor to state (1), then the
     corrector averages the predictor's and its own fluxes and nodal
