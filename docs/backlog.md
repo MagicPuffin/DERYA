@@ -636,8 +636,8 @@ scheme.
       light gas changes nothing; refining only [2.95, 3] fixes it (+0.035
       at x64 on 1215 cells, +0.007 at x256). The exact Riemann solver is
       worse (+0.84 at 450), so not the two-shock approximation
-- [ ] **Decision for Luca** (the gate is proposed, not agreed; not changed
-      here). Options:
+- [x] **Decision** (Luca, 2026-11-26): **(c)**. Task 19c builds it. The
+      options were:
   - (a) Keep the uniform 225/450/900 meshes and replace the shock bound
         with what they can meet (e.g. the shock error falls from 450 to
         900, or a bound of 0.5), with the 1D model's convergence as the
@@ -650,6 +650,34 @@ scheme.
         Its own task (mesh + deck + tests), before LeBlanc's gate run
   - (c) Both: (b) for the gate, the uniform family kept as the reported
         literature-style setup
+
+## Task 19c — LeBlanc with a refined layer at the contact
+Decided in Task 19b, option (c): the gate runs on meshes with the heavy
+gas next to the contact refined; the uniform family stays, reported, not
+gated. Files: `src/mesh/mesh.{hpp,cpp}` (if the structured mesh needs
+non-uniform x), `src/io/deck.{hpp,cpp}`, `docs/deck_format.md`,
+`decks/convergence/leblanc_layer_*.json`, `scripts/convergence.py`,
+`tests/unit/test_{mesh,driver}.cpp`, `docs/{vv_catalog,roadmap}.md`.
+- [ ] A graded-mesh deck key, e.g. `mesh.x_segments: [[x0, x1, n], ...]`
+      (uniform cells per segment, contiguous, covering [min, max] in x).
+      Tests: node positions, volumes, a state at rest stays at rest, a
+      uniform deck is byte-identical with and without the key. Watch the
+      thin-slab guard and the timestep's characteristic length (cells
+      much shorter in x than the slab width)
+- [ ] Decks: base n = 225/450/900 (slab width 9/n, cubic cells away from
+      the layer), [2.95, 3] refined x64 (the 1D model's choice:
+      `leblanc_1d.py` gives +0.035 at 900, +0.035 at 450). Check against
+      the 1D model first (order 1 shock within ~1e-3 of the model's), and
+      the cost (model: 7600 steps at 900 base)
+- [ ] `convergence.py`: family `leblanc_layer`, gated (items 1-4, shock
+      within 0.1 of 7.975 at the finest); `leblanc` (uniform) reported,
+      not gated. L1 per unit cross-section as before
+- [ ] Tests: the ctest on the cheapest layered deck at both orders (the
+      gate items there); the uniform ctest stays
+- [ ] Order 2 on the layered mesh is new (the 1D model is order 1 only):
+      report what it gives, don't tune
+- [ ] Profile overlay for the layered 900 deck, both orders, beside the
+      uniform one in `vv_catalog.md`
 
 ## Task 20 — Polar mesh mapping
 Files: `src/mesh/mesh.{hpp,cpp}`, `src/io/deck.{hpp,cpp}`,

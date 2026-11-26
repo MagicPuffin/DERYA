@@ -41,11 +41,11 @@ problems") at 3 resolutions, both orders (SP-V), through
 3. Order 2 has a smaller error than order 1 at every resolution.
 4. At the finest resolution, both orders:
    - *LeBlanc*: shock position (the last crossing of rho = 2.5e-3) within
-     0.1 of 7.975. Task 19 measured 8.383 (order 1) and 8.311 (order 2):
-     **fails**. Task 19b: not a defect, the uniform mesh under-resolves
-     the heavy gas at the contact (converges at ~10^4 cells; a refined
-     layer at the contact meets the bound). Setup or bound to be decided
-     (`backlog.md` Task 19b).
+     0.1 of 7.975, on the meshes with [2.95, 3] refined x64 (base n =
+     225/450/900; agreed with Luca 2026-11-26, Task 19b option (c)). The
+     uniform 225/450/900 family is reported, not gated: it measured 8.383
+     and 8.311 at 900 cells (Task 19), because a uniform mesh resolves the
+     heavy gas at the contact only at ~10^4 cells (Task 19b).
    - *Sedov*: shock radius (radius of the densest cell) within 0.05 of 1.
      The symmetry spread is reported, not gated.
    - *Kidder*: inner and outer radii at tau_1 within 1% of 0.45 and 0.5;
