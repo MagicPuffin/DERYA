@@ -67,7 +67,7 @@ double dot(const Vec3& a, const Vec3& b) {
 // precursor of an arriving wave (Sedov, 2e-7, tangential), not the flow
 // whose gradient is to be limited. Task 13 had 1e-8, enough for round-off
 // only; Sedov at order 2 then fails, as at 1e-6. On Sedov at 30x30 every
-// value from 1e-4 to 1e-1 runs and gives the same L1 to 3e-4; 1e-2 is
+// value from 1e-5 to 3e-1 runs, with the same L1 to 3e-4 relative; 1e-2 is
 // inside that band, not at its edge.
 constexpr double kNegligibleSpeed = 1e-2;
 

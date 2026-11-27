@@ -155,13 +155,21 @@ stop and report rather than deciding to override it.
     cell first, not the flow being limited, so the threshold separates
     "at rest" from "moving with the flow", not round-off from signal. How
     it was picked (Sedov at 30, order 2, the same build with the threshold
-    read at run time): 1e-8 and 1e-6 fail; 1e-5 ... (see below); every value from 1e-4 to 1e-1
-    runs to t = 1 with the same L1 (1.043e-1 to 4 digits; densities within
-    3e-4 of the 1e-2 run's) and 3e-1 with 1.0432e-1. Near-rest cells
-    at a wave front are moving along the pressure gradient anyway, so the
-    fallback barely changes them; the result is flat over three decades,
-    and 1e-2 sits inside that band, not at its edge. Effect on the v0.2
-    order-2 dumps: ... (see below).
+    read at run time): 1e-8 and 1e-6 fail; every value from 1e-5 to 3e-1
+    runs to t = 1 with the same L1 (1.0429e-1, 1.0432e-1 at 3e-1; cell
+    densities within 4e-4 of the 1e-2 run's). Near-rest cells at a wave
+    front already move along the pressure gradient, so the fallback barely
+    changes them: the result is flat over four decades, and 1e-2 sits
+    inside that band, not at its edge. Effect on the order-2 dumps (Task
+    22b): Noh and Taylor-Green (SP-V) byte-identical, Sod and LeBlanc
+    layer 225 at round-off (1.6e-15 and 3e-13 in density; Sod's mirror
+    columns still 1e-14 apart), Saltzman changed in the shock cells only
+    (x in [0.60, 0.83], density up to 1e-2 mid-jump, 1122 steps instead of
+    1121): the shock enters cold gas (P = 0) on the skewed mesh, where a
+    cell's first velocity is below 1e-2 of its neighbours' and not along
+    the pressure gradient. Its L1 moves by 0.16% at most (order 2:
+    7.041e-2, 3.104e-2, 1.557e-2 at 50/100/200, from 7.030e-2, 3.102e-2,
+    1.559e-2); the v0.2 gate still passes.
     Rejected: the direction from the pressure gradient whenever |V_c| is
     small against the velocity jump across the cell (|grad V| h): a
     second, mesh-dependent scale for the same idea, and it would switch

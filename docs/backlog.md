@@ -751,7 +751,7 @@ tests. Also changed: `README.md`, `decisions.md`. `hydro.cpp` and
       run fails one step earlier at order 2 (its corrector reaches t_focus
       first)
 
-## Task 22 — Sedov (cylindrical) — ✅ DONE at order 1; order 2 in Task 22b
+## Task 22 — Sedov (cylindrical) — ✅ DONE (order 2 in Task 22b)
 Files: decks, `src/io/deck.{hpp,cpp}` and `src/app/driver.{hpp,cpp}` (the
 energy-spike initialization), `scripts/{gen_oracle_data,convergence}.py`,
 oracle data, tests, `docs/vv_catalog.md`. Also changed:
@@ -773,9 +773,9 @@ oracle data, tests, `docs/vv_catalog.md`. Also changed:
       (~7 s): energy and mass to 1e-12, v_z ~ 0, diagonal mirror symmetry,
       the gas ahead untouched, shock within 0.05 of 1 and at the measured
       0.9677, peak rho 5.007, radial L1 0.1664. Order 1 at 30/60/120: L1
-      0.166, 0.116, 0.052; shock 0.968, 0.981, 0.992 (`vv_catalog.md`,
+      0.166, 0.114 (listed as 0.116 at first: a slip, Task 22b), 0.052; shock 0.968, 0.981, 0.992 (`vv_catalog.md`,
       "Sedov")
-- [ ] **Order 2 with SP-V fails** at every resolution (negative eps in a
+- [x] **Order 2 with SP-V fails** at every resolution (fixed in Task 22b) (negative eps in a
       cold cell just ahead of the shock, step 85 at n = 30). Cause: SP-V
       limits V only along u_c = V_c/|V_c|, and a ~1e-7 tangential
       precursor velocity passes the 1e-8 "negligible speed" threshold
@@ -790,7 +790,7 @@ oracle data, tests, `docs/vv_catalog.md`. Also changed:
         the rule for V_c ~ 0 is already our choice, not the paper's
   - (b) The MM limiter (thesis Sec. 2.4), as Task 16 planned for an SP-V
         failure on Sedov
-- [ ] Cost: order 1 at 120 took 5185 steps, 32 min with the machine
+- [x] Cost (taken up in Task 22b): order 1 at 120 took 5185 steps, 32 min with the machine
       shared (steps x3.2 per doubling: dt is set by the hot core). Order 2
       at 120 would be ~1 h, above the ~15 min budget; the 120 size (or the
       budget) needs revisiting with the decision above
@@ -800,33 +800,46 @@ oracle data, tests, `docs/vv_catalog.md`. Also changed:
       (density, radial u, P, eps against r). Order 2 waits for the fix. The
       thesis's Figs. 3.13-3.15 are the spherical problem, so not overlaid
 
-## Task 22b — SP-V velocity direction for near-rest cells; Sedov at order 2
+## Task 22b — SP-V velocity direction for near-rest cells; Sedov at order 2 — ✅ DONE
 Decided in Task 22, option (a): the SP-V rule for the direction u_c is
 fixed rather than replaced by the MM limiter. Files:
 `src/hydro/limiter.{hpp,cpp}`, `tests/unit/test_limiter.cpp`,
 `tests/unit/test_driver.cpp`, `scripts/convergence.py` (if needed),
 `docs/{decisions,vv_catalog,roadmap}.md`, `README.md`, the Sedov figure.
-- [ ] The rule: u_c = V_c / |V_c| only when |V_c| is not small against
-      the largest |V_c'| over C(P(c)); otherwise the pressure-gradient
-      direction, else e_x. Today "small" is 1e-8 (Task 13, against Sod's
-      1e-17 round-off); Sedov's ahead-of-shock precursor is ~2e-7 and
-      tangential. Task 22's throwaway build used 1e-2 and ran Sedov at
-      30 and 60. Pick and justify the threshold (or an equivalent
-      criterion), not tuned to the gate; record it in `decisions.md`,
-      "Limiter: SP-V"
-- [ ] Unit test first (red before, green after): a cell at near-rest with
-      a tiny tangential V_c, neighbours carrying a radial velocity
-      gradient, gets chi_V < 1 (limited along the gradient)
-- [ ] Regressions: the Sod, Noh, Saltzman, LeBlanc layer 225 and
-      Taylor-Green order-2 dumps compared with the previous build's
-      (byte-identical, or the change measured and explained); the v0.2
-      gate still passes; Sod's mirror columns still at round-off
-- [ ] Sedov at order 2 on 30/60/120: runs to t = 1, L1 below order 1's,
-      shock within 0.05 of 1 at the finest; `v0.3` ctest at 30 extended to
-      both orders (measured values); the overlay with both orders
-- [ ] Cost: order 2 at 120 is ~1 h (Task 22). Agree with Luca whether
-      120 stays the finest Sedov mesh or the budget is raised; run it
-      either way for the gate, alone on the machine, and report the time
+- [x] The rule: u_c = V_c / |V_c| only when |V_c| > 1e-2 of the largest
+      |V_c'| over C(P(c)); otherwise the pressure-gradient direction, else
+      e_x (`kNegligibleSpeed` in `limiter.cpp`, was 1e-8). Justified by a
+      sweep with the threshold read at run time (throwaway build): Sedov
+      30 at order 2 fails at 1e-8 and 1e-6, and every value from 1e-5 to
+      3e-1 runs with the same L1 (1.0429e-1, 1.0432e-1 at 3e-1), so 1e-2
+      is inside a flat band, not tuned to the gate. Recorded in
+      `decisions.md`, "Limiter: SP-V", with the rejected alternative
+      (|V_c| against |grad V| h)
+- [x] Unit test first: `velocity_limiters: projection direction and the
+      V_c = 0 fallback`, section "V_c near rest, tangential to the
+      gradient": V_c = 2e-8 e_x next to neighbours at 0.1 with dV_y/dy,
+      chi_V = 2/3 (red at 1.0 before). The "V_c != 0" section's V_c =
+      1e-3 e_y sat at the new threshold: now 2e-3 (limited along V_c) and
+      5e-4 (counts as at rest)
+- [x] Regressions, order 2 against the previous build: Noh and
+      Taylor-Green (unlimited and SP-V) byte-identical; Sod 1.6e-15 and
+      LeBlanc layer 225 3e-13 in density (round-off); Saltzman changed in
+      its shock cells only (x in [0.60, 0.83], up to 1e-2 mid-jump, 1122
+      steps instead of 1121; the shock enters P = 0 gas on the skewed
+      mesh). v0.2 gate passes; Saltzman's order-2 L1 7.041e-2, 3.104e-2,
+      1.557e-2 (was 7.030e-2, 3.102e-2, 1.559e-2), Sod, Noh, LeBlanc layer
+      unchanged to 4 digits. Sod's mirror columns 1.2e-14 apart. Full
+      ctest green (111)
+- [x] Sedov at order 2 on 30/60/120: L1 1.043e-1, 4.842e-2, 1.896e-02
+      (order 1: 1.664e-1, 1.139e-1, 5.227e-2); shock 0.981, 0.991,
+      0.999. The ctest is now `hydro_run: cylindrical Sedov at both
+      orders, 30x30` (order 2: shock 0.9807, peak 5.650, L1 0.1043,
+      energy to 2e-14, mirror 8e-14). Overlay with both orders:
+      `docs/figures/profiles_sedov_120.png`
+- [ ] Cost, **open for Luca**: order 2 at 120 took 90.6 min of CPU time (5233 steps; 9.0 h wall clock on the shared desktop, so the CPU time is the measure). Order
+      1 at 120 took 32 min in Task 22. Both are above the ~15 min budget,
+      so: keep 120 as the finest Sedov mesh (and the budget for it), or
+      drop to 30/60/(90)? Not decided here
 
 ## Task 23 — Kidder isentropic compression (cylindrical shell)
 Files: decks, deck/driver support for the initial profile (as

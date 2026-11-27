@@ -49,10 +49,10 @@ problems") at 3 resolutions, both orders (SP-V), through
      heavy gas at the contact only at ~10^4 cells (Task 19b).
    - *Sedov*: shock radius (radius of the densest cell) within 0.05 of 1.
      The symmetry spread is reported, not gated.
-     **Not met yet** (Task 22): order 1 passes (0.992 at 120); order 2
-     with SP-V fails before t = 0.1 at every resolution (the limiter's
-     velocity direction ahead of the shock; `vv_catalog.md`, "Sedov").
-     Fix decided (Luca, 2026-11-26): the SP-V direction rule, Task 22b.
+     **Met** (Task 22b): 0.992 (order 1) and 0.999 (order 2) at 120.
+     Order 2 first failed with SP-V (Task 22); fixed by the SP-V
+     direction rule for near-rest cells (`decisions.md`, "Limiter:
+     SP-V"), not the MM limiter.
    - *Kidder*: inner and outer radii at tau_1 within 1% of 0.45 and 0.5;
      max |P / rho^gamma - 1| <= 1e-2; the order-2 rate above the order-1
      rate.

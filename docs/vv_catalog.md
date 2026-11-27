@@ -11,7 +11,7 @@ and the **Kamm-Timmes Sedov solver** (their method, LA-UR-07-2849). Generate via
 | Sod | shock/contact/rarefaction | v0.2: 3 resolutions, both orders (table below) |
 | Noh | wall-heating, stagnation shock | planar, v0.2: 3 resolutions, both orders (table below) |
 | Woodward-Colella blast wave | shock-shock interaction | Tier A/AMR-adjacent, defer |
-| Sedov | spherical/cylindrical symmetry | not started |
+| Sedov | spherical/cylindrical symmetry | cylindrical, v0.3 (Tasks 22-22b): both orders at 30/60/120, shock within 0.05 of 1, order 2 below order 1 (table below); spherical is v0.4/v0.5 |
 | Triple point | multi-material vortex | Tier B, defer |
 
 ## Additional standard tests (not in the paper)
@@ -31,7 +31,9 @@ L1 density error against the exact solution, `sum_c |rho_c - rho(x_c)| V_c / A`
 `python3 scripts/convergence.py --markdown` on `decks/convergence/` (n cells
 along the flow: Sod n×2×2, Noh n×1×1, Saltzman n×n/10×1 skewed). Order 2
 uses the SP-V limiter. The v0.2 gate (order 2 below order 1 at every
-resolution) passes on all three.
+resolution) passes on all three. Saltzman's order-2 errors are Task 22b's
+(the SP-V near-rest rule; `decisions.md`, "Limiter: SP-V"), up to 0.16%
+from Task 15's 7.030e-02, 3.102e-02, 1.559e-02; Sod and Noh unchanged.
 
 | Problem | Cells | Order 1 L1 | rate | Order 2 L1 | rate |
 |---|---|---|---|---|---|
@@ -41,9 +43,9 @@ resolution) passes on all three.
 | Noh | 50 | 3.899e-02 | | 3.098e-02 | |
 | Noh | 100 | 1.941e-02 | 1.01 | 1.562e-02 | 0.99 |
 | Noh | 200 | 9.624e-03 | 1.01 | 7.914e-03 | 0.98 |
-| Saltzman | 50 | 9.090e-02 | | 7.030e-02 | |
-| Saltzman | 100 | 4.535e-02 | 1.00 | 3.102e-02 | 1.18 |
-| Saltzman | 200 | 2.190e-02 | 1.05 | 1.559e-02 | 0.99 |
+| Saltzman | 50 | 9.090e-02 | | 7.041e-02 | |
+| Saltzman | 100 | 4.535e-02 | 1.00 | 3.104e-02 | 1.18 |
+| Saltzman | 200 | 2.190e-02 | 1.05 | 1.557e-02 | 1.00 |
 
 ![L1 density error against resolution](figures/convergence_v0.2.png)
 
@@ -244,62 +246,76 @@ length at the centroid radius; shock = the densest cell's radius; spread =
 the largest max - min of density in a radial bin one cell wide, over the
 bins behind the shock.
 
-**Order 1** (`convergence.py --problems sedov --orders 1`):
+Both orders (`convergence.py --problems sedov`; order 2 with SP-V and
+the near-rest rule of Task 22b, below):
 
-| n | Order 1 L1 | rate | shock | peak rho | spread | steps | time |
-|---|---|---|---|---|---|---|---|
-| 30 | 1.664e-01 | | 0.968 | 5.01 | 2.11 | 508 | 7 s |
-| 60 | 1.161e-01 | 0.52 | 0.981 | 5.45 | 1.91 | 1601 | 3.2 min* |
-| 120 | 5.227e-02 | 1.15 | 0.992 | 5.70 | 0.91 | 5185 | 32 min* |
+| n | Order 1 L1 | rate | shock | peak rho | spread | steps | Order 2 L1 | rate | shock | peak rho | spread | steps |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 30 | 1.664e-01 | | 0.968 | 5.01 | 2.11 | 508 | 1.043e-01 | | 0.981 | 5.65 | 1.51 | 512 |
+| 60 | 1.139e-01 | 0.55 | 0.981 | 5.45 | 1.91 | 1601 | 4.842e-02 | 1.11 | 0.991 | 6.01 | 1.34 | 1616 |
+| 120 | 5.227e-02 | 1.12 | 0.992 | 5.70 | 0.91 | 5185 | 1.896e-02 | 1.35 | 0.999 | 6.18 | 0.73 | 5233 |
 
-(* with 2-3 other runs on 4 cores.) Total energy conserved to round-off
+(Order 1 at 60 was listed as 1.161e-01 in Task 22; the Task 22 build
+gives 1.139e-01, byte-identical dump to this one, so that was a
+transcription slip.) Total energy conserved to round-off at both orders
 (0.2460225960 per unit length: the spike plus the background's 3.6e-6),
-v_z below 4e-16, mirror symmetry about the diagonal to 7e-14, the gas
-ahead untouched. The shock is within 0.05 of 1 at every resolution. The
-spread mixes in the steep radial gradient across a bin next to the shock,
-so it is large near the shock by construction; it falls with resolution.
-The steps grow ~3.2x per doubling, not 2x: dt is set by the hot cells at
-the origin. **Cost**: the 120 run is above the ~15 min budget at order 1,
-and order 2 (~4x per step) would be about an hour.
+v_z below 4e-16, mirror symmetry about the diagonal to 1.5e-12, the gas
+ahead untouched. The shock is within 0.05 of 1 at every resolution and
+both orders, and order 2 is below order 1 everywhere (1.6x, 2.4x,
+2.8x): the v0.3 Sedov gate is met. The spread mixes in the
+steep radial gradient across a bin next to the shock, so it is large
+near the shock by construction; it falls with resolution. The steps grow
+~3.2x per doubling, not 2x: dt is set by the hot cells at the origin.
 
-![Sedov profiles, order 1](figures/profiles_sedov_120.png)
+**Cost.** Order 1: 7 s at 30, 3.2 min at 60 (sharing the machine), 32
+min at 120 (Task 22; 9.3 h wall clock when rerun in Task 22b on the shared,
+partly suspended desktop). Order 2: the 30 and 60 runs of both orders took
+7.4 min together (4 parallel jobs); 120 90.6 min of CPU time (5233 steps; 9.0 h wall clock on the shared desktop, so the CPU time is the measure).
+Both 120 runs are above the ~15 min budget; whether 120 stays the
+finest Sedov mesh is open (`backlog.md`, Task 22b).
+
+![Sedov profiles, both orders](figures/profiles_sedov_120.png)
 
 (ExactPack's eps has a kink at r ~ 0.19, inside the near-vacuum core
 where no cell is at t = 1; not used by the metric.) Georges' thesis
 Figs. 3.13-3.15 are the *spherical* Sedov on 20^3 cells, not this
 problem, so they are not overlaid.
 
-### Order 2 with SP-V fails (the finding)
-Order 2 with SP-V stops with a negative internal energy in a cold cell
-just ahead of the shock: step 85 at n = 30 (t = 0.086, cell 156 at r =
-0.34, near the diagonal), step 86 at 60, step 101 at 120. CFL 0.1 does
-not help (step 150, same cell). With `"limiter": "none"` order 2 runs to
-t = 1 at n = 30 (L1 0.156, shock 0.992).
+### Order 2 with SP-V failed (Task 22), fixed in Task 22b
+Before Task 22b, order 2 with SP-V stopped with a negative internal
+energy in a cold cell just ahead of the shock: step 85 at n = 30 (t =
+0.086, cell 156 at r = 0.34, near the diagonal), step 86 at 60, step 101
+at 120. CFL 0.1 did not help (step 150, same cell). With `"limiter":
+"none"` order 2 runs to t = 1 at n = 30 (L1 0.156, shock 0.992).
 
 Cause (probed with `--probe 156`): ahead of the shock the cell carries a
 precursor velocity of ~1e-7 (2e-7 of its neighbours' 0.4), pointing
 almost tangentially (V_c ~ (-0.73, 0.68) at (0.26, 0.22)). SP-V limits the
 velocity gradient only through its projection on u_c = V_c / |V_c|
 (`decisions.md`, "Limiter: SP-V"), and the 1e-8 "negligible speed"
-threshold of Task 13 (tuned on Sod's 1e-17 round-off) lets this vector
-through. The incoming radial gradient is then nearly unlimited in the
-cell; its corner velocities overshoot and the kinetic energy exceeds the
-cell's total energy as the shock arrives.
+threshold of Task 13 (set for Sod's 1e-17 round-off) let this vector
+through. The incoming radial gradient was then nearly unlimited in the
+cell; its corner velocities overshot and the kinetic energy exceeded the
+cell's total energy as the shock arrived.
 
-Check (throwaway build, not committed): with the threshold at 1e-2 (that
-cell falls back to the pressure-gradient direction, radial), order 2
-runs to t = 1:
+Fix (Task 22b, option (a) of Task 22, decided by Luca 2026-11-26): V_c
+counts as at rest at or below **1e-2** of the largest |V_c'| over
+C(P(c)), and is then limited along the pressure gradient (radial here).
+The threshold was read at run time in a throwaway build to measure the
+band, Sedov 30 at order 2:
 
-| n | Order 2 L1 (threshold 1e-2) | shock | peak rho | spread |
-|---|---|---|---|---|
-| 30 | 1.101e-01 | 0.981 | 5.65 | 1.51 |
-| 60 | 4.842e-02 | 0.991 | 6.01 | 1.34 |
+| threshold | 1e-8 | 1e-6 | 1e-5 | 1e-4 | 1e-3 | 1e-2 | 1e-1 | 3e-1 |
+|---|---|---|---|---|---|---|---|---|
+| result | fails, step 85 | fails, step 129 | 1.0429e-01 | 1.0429e-01 | 1.0429e-01 | 1.0429e-01 | 1.0429e-01 | 1.0432e-01 |
 
-below order 1 at both (0.166, 0.116). Not adopted: it changes the scheme
-(and possibly the v0.2 dumps), so it is a decision for its own task, as
-the Task 16 plan says for an SP-V failure on Sedov. Decided (Luca,
-2026-11-26): fix the direction rule rather than switch to the MM limiter;
-`backlog.md`, Task 22b.
+(L1; shock 0.9807 and peak 5.650 throughout, cell densities within 4e-4
+of the 1e-2 run's.) Flat over four decades, so 1e-2 is not tuned to the
+gate. Task 22's throwaway check listed L1 1.101e-01 at 30 with the same
+shock, peak and spread; this build gives 1.043e-01, and its 60 value
+(4.842e-02) matches Task 22's exactly, so the 30 value was likely
+mis-copied. Effect on the v0.2 order-2 dumps: Noh and Taylor-Green
+byte-identical, Sod and LeBlanc layer 225 at round-off, Saltzman changed
+in its shock cells (L1 within 0.16%; table above, `decisions.md`).
 
 ## Methodology (run alongside every test, not a test itself)
 - **Grid Convergence Index / Richardson extrapolation** (Roache) — run every
